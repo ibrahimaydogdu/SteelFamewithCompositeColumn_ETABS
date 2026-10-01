@@ -1,21 +1,28 @@
 # KULLANIM KILAVUZU
 
-Kompozit kolonlu uzay çelik çerçevelerin optimum tasarımı (ETABS 19).
+Kompozit kolonlu uzay çelik çerçevelerin optimum tasarımı (ETABS 22; ETABS 19 ile de çalışır).
 
 ## 1. Kurulum
-1. ETABS 19 kurulu ve lisanslı olmalıdır.
+1. ETABS 22 (veya ETABS 19) kurulu ve lisanslı olmalıdır.
+   - Proje derlenirken ETABS 22 kuruluysa onun API'si (`ETABSv1.dll`), değilse ETABS 19'unki kullanılır. Program, derlendiği sürümdeki ETABS'e bağlanacak şekilde ayarlanmalıdır.
+   - ETABS 22'de kaydedilen model ETABS 19'da açılmaz. ETABS 19 modelleri ETABS 22'de açılınca otomatik dönüştürülür.
 2. `App.config` (derlenmiş hâli `FrameSap2000.exe.config`) içindeki ayarlar:
 
 | Anahtar | Açıklama |
 |---|---|
-| `ETABSProgramPath` | `ETABS.exe` dosyasının yolu |
-| `SectionPropertyDataPath` | Kesit kütüphanesi. CSI formatında ve birimi **mm** olmalıdır (ör. `AISC14M.xml`). |
+| `ETABSProgramPath` | `ETABS.exe` dosyasının yolu (varsayılan ETABS 22). Yol bulunamazsa kurulu en yeni ETABS kullanılır ve uyarı yazılır. |
+| `SectionPropertyDataPath` | Kesit kütüphanesi. CSI formatında ve birimi **mm** olmalıdır (ETABS 22: `AISC16M.xml`, ETABS 19: `AISC14M.xml`). |
 | `BeamAutoSelectList`, `ColumnAutoSelectList` | Başlangıç tasarımında kullanılan otomatik kesit listelerinin adları |
+| `WorkFolder` | Modelin çalışma kopyalarının klasörü. Boş bırakılırsa `%TEMP%\SteelFrameOpt` kullanılır. |
 
 3. Kompozit mod kullanılacaksa `EncasedSections.xml` dosyası exe ile aynı klasörde bulunmalıdır. Proje derlenince otomatik kopyalanır.
 
 ## 2. ETABS modelinin hazırlanması
-Program modeli **üzerine kaydederek** çalışır; orijinal modelin bir kopyasını kullanın.
+Program seçilen modeli **değiştirmez**:
+- Koşu başında model geçici bir çalışma klasörüne kopyalanır (`%TEMP%\SteelFrameOpt\<model>_<tarih_saat>`) ve tüm analizler orada yapılır.
+- Analiz dosyaları OneDrive gibi senkronize klasörleri doldurmaz.
+- Çalışma klasörü koşu sonunda silinir. Yolu `ErrorLog.txt` dosyasında `Info: working copy …` satırında yazar.
+- En iyi tasarım yine orijinal modelin yanına `<model>_best.EDB` adıyla kaydedilir.
 
 - **Gruplar:** Aynı kesiti alacak çubukları bir grupta toplayın. Her çubuk yalnızca bir gruba ("All" dışında) ait olmalıdır. Grup içindeki çubukların tasarım prosedürü aynı olmalıdır.
 - **Tasarım değişkenleri:** Tasarım prosedürü *Steel Frame Design* olan gruplar değişken olur. Diğer gruplar (beton, No Design vb.) sabit kalır.
@@ -40,10 +47,16 @@ Program modeli **üzerine kaydederek** çalışır; orijinal modelin bir kopyas�
 - *Check Structure Only*: çıktı XML'indeki en iyi kesitleri düzeltme yapmadan kontrol eder. Sonuç `<çıktı>.check.xml` dosyasına yazılır.
 
 **Structural Properties sekmesi**
-- Öteleme sınırları (H/oran), çelik tasarım kodu.
-  - ETABS 19 API'si `AISC 360-16` kodunu kabul etmez; `AISC 360-10` seçin.
+- Öteleme sınırları (H/oran) ve çelik tasarım kodu (varsayılan `AISC 360-22`).
+  - ETABS 22: `AISC 360-22` ve `AISC 360-16` kullanılabilir.
+  - ETABS 19 API'si bu iki kodu kabul etmez; `AISC 360-10` seçin.
+  - Atanan kod `ErrorLog.txt` dosyasına `Info: steel design code …` satırıyla yazılır.
 - **Analysis / Composite Options** grubu:
-  - *Encased composite columns (AISC 360-16)*: kolon gruplarını gömülü kompozit kolon olarak tasarlar.
+  - *Encased composite columns*: kolon gruplarını gömülü kompozit kolon olarak tasarlar.
+  - *Composite code*: kompozit kolon kontrolünün yönetmelik sürümü, `AISC 360-16` veya `AISC 360-22` (varsayılan). Çelik tasarım kodundan bağımsızdır.
+    - Gömülü kolonlarda iki sürümün formülleri aynıdır; sonuç değişmez.
+    - Farklar dolgulu kutu/boru kesitlerdedir (beton kesme katkısı, narin kesit etkileşimi, burulma). Bu kesitler henüz optimizasyona bağlı değildir.
+    - Eski bir `BackUp.xml` dosyasından devam edilirse `AISC 360-16` kullanılır.
   - *Create default design combos if model has none*: kombinasyon yoksa otomatik oluşturur.
   - *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
     - "All cases and combos": modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
@@ -62,7 +75,7 @@ Her W kesiti için bir gömülü kesit üretilir:
 
 > **Dikkat:** Varsayılan birim maliyetler yalnızca yer tutucudur. Çalışmanıza uygun fiyat oranlarını girin; optimum çözüm bu oranlara doğrudan bağlıdır.
 
-Kontrol edilenler (AISC 360-16, LRFD):
+Kontrol edilenler (AISC 360-16 / 360-22, LRFD; gömülü kesitte iki sürüm aynıdır):
 - Eksenel basınç / çekme (I2)
 - Plastik gerilme dağılımıyla eğilme (I3.3)
 - B1 büyütmeli H1-1 etkileşimi
@@ -77,15 +90,18 @@ ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit
 | Dosya | İçerik |
 |---|---|
 | Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
-| `<model>_best.EDB` | En iyi tasarımın ETABS modeli |
+| `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
+| Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir |
 | `ErrorLog.txt` (model klasörü) | Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler), uyarılar (tamamlanamayan analizler vb.) ve hatalar |
 | `BackUp.xml` (program klasörü) | Her çevrimde güncellenen yedek |
 
 ## 6. Sık karşılaşılan durumlar
 | Mesaj (`ErrorLog.txt`) | Neden / çözüm |
 |---|---|
+| `Info: ETABS 22.x.x (…)` | Bağlanılan ETABS sürümü ve yolu. |
 | `ETABS program not found` / `Section property file not found` | `App.config` yollarını düzeltin. |
-| `DesignSteel.SetCode, code not available` | Formda ETABS API'sinin desteklediği bir kod seçin (ör. AISC 360-10). |
+| `Warning: 'ETABSProgramPath' not found …, using …` | Ayardaki yol bulunamadı; kurulu en yeni ETABS kullanıldı. Ayarı düzeltin. |
+| `DesignSteel.SetCode, code not available` | Formda ETABS API'sinin desteklediği bir kod seçin (ETABS 22: AISC 360-22; ETABS 19: AISC 360-10). |
 | `No strength design combination` | Kombinasyon tanımlayın veya otomatik kombinasyon seçeneğini açın. |
 | `No lateral (wind/earthquake) combination` | Yük desenlerinin tipini Wind/Quake yapın veya öteleme modunu "All" seçin. |
 | `Warning: analysis not finished …` | Aday tasarım kararsız; ceza alır ve arama devam eder. Hata değildir. |

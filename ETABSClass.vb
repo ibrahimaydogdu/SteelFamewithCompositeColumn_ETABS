@@ -38,6 +38,9 @@ Public Class ETABS_Class
     Public A992Fy50Weight As Double
     Public SectionPropertyData As String
     Public ETABS_print As ETABS_Print
+    'Working copy of the model: all saves / analyses run here, the input model is never modified
+    Public WorkFile As String
+    Private WorkDir As String
 
     'Name -> index lookups (avoid repeated linear searches)
     Private PointIndex As Dictionary(Of String, Integer)
@@ -76,16 +79,21 @@ Public Class ETABS_Class
         Dim avtime As Double = If(Iter > 0, Math.Round(timeSpan.TotalSeconds / Iter, 2), 0)
         FormInfo.TimerInfo.TotalTime = timeSpan.Days & "D:" & timeSpan.Hours & "H:" & timeSpan.Minutes & "M:" & timeSpan.Seconds & "S," & "Ave=" & avtime & "sec"
 
-        'Close ETABS
-        ETABSObject?.ApplicationExit(False)
-        SapModel = Nothing
-        ETABSObject = Nothing
+        Shutdown()
 
         If ret = 0 Then
             MsgBox("API script completed successfully.")
         Else
             MsgBox("API script FAILED to complete.")
         End If
+    End Sub
+
+    'Close ETABS and remove the working folder (no message box)
+    Public Sub Shutdown()
+        ETABSObject?.ApplicationExit(False)
+        SapModel = Nothing
+        ETABSObject = Nothing
+        DeleteWorkDir()
     End Sub
 
     Private Function Initilize() As Integer
@@ -119,6 +127,9 @@ Public Class ETABS_Class
         If SteelFrameDesignGroupIDs.Count > 0 Then
             ret = SapModel.DesignSteel.SetCode(FormInfo.FrameInfo.SteelDesignCode)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignSteel.SetCode, code not available in the ETABS API: " & FormInfo.FrameInfo.SteelDesignCode) : Return ret : End If
+            Dim CodeName As String = Nothing
+            SapModel.DesignSteel.GetCode(CodeName)
+            Errorlogprint("Info: steel design code " & CodeName)
         End If
         '_____________________________________________________
         'Upper Lower boundary Def
@@ -141,6 +152,58 @@ Public Class ETABS_Class
         Return value
     End Function
 
+    'Copies the input model to <WorkFolder or %TEMP%>\SteelFrameOpt\<model>_<time>\<model>.EDB
+    Private Function CreateWorkCopy(ByVal SourceFile As String) As Integer
+        Try
+            If Not File.Exists(SourceFile) Then : Errorlogprint("Model file not found: " & SourceFile) : Return -1 : End If
+            Dim Root As String = ReadSetting("WorkFolder")
+            If String.IsNullOrWhiteSpace(Root) Then Root = Path.Combine(Path.GetTempPath(), "SteelFrameOpt")
+            Dim Name As String = Path.GetFileNameWithoutExtension(SourceFile)
+            Dim Stamp As String = Date.Now.ToString("yyyyMMdd_HHmmss")
+            WorkDir = Path.Combine(Root, Name & "_" & Stamp)
+            Dim k As Integer = 1
+            While Directory.Exists(WorkDir)
+                k += 1 : WorkDir = Path.Combine(Root, Name & "_" & Stamp & "_" & k)
+            End While
+            Directory.CreateDirectory(WorkDir)
+            WorkFile = Path.Combine(WorkDir, Path.GetFileName(SourceFile))
+            File.Copy(SourceFile, WorkFile)
+            Errorlogprint("Info: working copy " & WorkFile)
+            Return 0
+        Catch ex As Exception
+            Errorlogprint("Cannot create the working copy of " & SourceFile & ": " & ex.Message)
+            Return -1
+        End Try
+    End Function
+
+    'ETABS may hold the analysis files for a moment after exit: retry, never fail the run
+    Private Sub DeleteWorkDir()
+        If String.IsNullOrEmpty(WorkDir) OrElse Not Directory.Exists(WorkDir) Then Return
+        For i = 1 To 10
+            Try
+                Directory.Delete(WorkDir, True)
+                Return
+            Catch
+                Threading.Thread.Sleep(500)
+            End Try
+        Next
+        Errorlogprint("Warning: working folder could not be deleted: " & WorkDir)
+    End Sub
+
+    'Newest "Computers and Structures\ETABS <n>\ETABS.exe" (ETABS 22, 21, ... 19)
+    Private Shared Function FindInstalledETABS() As String
+        Dim Root As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Computers and Structures")
+        If Not Directory.Exists(Root) Then Return Nothing
+        Dim Best As String = Nothing, BestVer As Integer = -1
+        For Each d In Directory.GetDirectories(Root, "ETABS *")
+            Dim v As Integer
+            If Integer.TryParse(Path.GetFileName(d).Substring(6).Trim(), v) AndAlso v > BestVer AndAlso File.Exists(Path.Combine(d, "ETABS.exe")) Then
+                BestVer = v : Best = Path.Combine(d, "ETABS.exe")
+            End If
+        Next
+        Return Best
+    End Function
+
     Private Function InitilizeETABS() As Integer
         Dim ret As Integer
         Dim SapFileName As String = FormInfo.FileList.ETABSFile
@@ -151,12 +214,24 @@ Public Class ETABS_Class
         Dim ProgramPath As String = ReadSetting("ETABSProgramPath")
         SectionPropertyData = ReadSetting("SectionPropertyDataPath")
         If String.IsNullOrWhiteSpace(ProgramPath) OrElse Not File.Exists(ProgramPath) Then
-            Errorlogprint("ETABS program not found. Check 'ETABSProgramPath' in App.config: " & ProgramPath)
-            Return -1
+            Dim Found As String = FindInstalledETABS()
+            If Found Is Nothing Then
+                Errorlogprint("ETABS program not found. Check 'ETABSProgramPath' in App.config: " & ProgramPath)
+                Return -1
+            End If
+            Errorlogprint("Warning: 'ETABSProgramPath' not found (" & ProgramPath & "), using " & Found)
+            ProgramPath = Found
         End If
         If String.IsNullOrWhiteSpace(SectionPropertyData) OrElse Not File.Exists(SectionPropertyData) Then
-            Errorlogprint("Section property file not found. Check 'SectionPropertyDataPath' in App.config: " & SectionPropertyData)
-            Return -1
+            'same library file name in the property libraries of the ETABS version in use
+            Dim Alt As String = If(String.IsNullOrWhiteSpace(SectionPropertyData), Nothing,
+                                   Path.Combine(Path.GetDirectoryName(ProgramPath), "Property Libraries", Path.GetFileName(SectionPropertyData)))
+            If Alt Is Nothing OrElse Not File.Exists(Alt) Then
+                Errorlogprint("Section property file not found. Check 'SectionPropertyDataPath' in App.config: " & SectionPropertyData)
+                Return -1
+            End If
+            Errorlogprint("Warning: 'SectionPropertyDataPath' not found (" & SectionPropertyData & "), using " & Alt)
+            SectionPropertyData = Alt
         End If
 
         If AttachToInstance Then
@@ -184,14 +259,18 @@ Public Class ETABS_Class
 
         'Get a reference to cSapModel to access all OAPI classes and functions
         SapModel = ETABSObject.SapModel
+        Dim Ver As String = Nothing, VerNum As Double
+        If SapModel.GetVersion(Ver, VerNum) = 0 Then Errorlogprint("Info: ETABS " & Ver & " (" & ProgramPath & ")")
 
         If FormInfo.HideETABS = True Then
             ret = ETABSObject.Hide
             If (ret <> 0) Then : Errorlogprint("Problem occured on :Hide model") : Return ret : End If
         End If
 
-        ret = SapModel.File.OpenFile(SapFileName)
-        If (ret <> 0) Then : Errorlogprint("Problem occured on :OpenFile") : Return ret : End If
+        ret = CreateWorkCopy(SapFileName)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :CreateWorkCopy") : Return ret : End If
+        ret = SapModel.File.OpenFile(WorkFile)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :OpenFile " & WorkFile) : Return ret : End If
 
         If SapModel.GetModelIsLocked = True Then
             ret = SapModel.SetModelIsLocked(False)
@@ -869,8 +948,8 @@ Public Class ETABS_Class
     End Function
 
     Public Function E3_Analysis() As Integer
-        Dim ret As Integer = SapModel.File.Save(FormInfo.FileList.ETABSFile)
-        If (ret <> 0) Then : Errorlogprint("Problem occured in :File.Save") : Return ret : End If
+        Dim ret As Integer = SapModel.File.Save(WorkFile)
+        If (ret <> 0) Then : Errorlogprint("Problem occured in :File.Save " & WorkFile) : Return ret : End If
         ret = SapModel.Analyze.RunAnalysis
         If (ret <> 0) Then : Errorlogprint("Problem occured on :RunAnalysis") : Return ret : End If
         'cases that were set to run but did not finish (e.g. unstable / not converged nonlinear cases)
@@ -1145,7 +1224,7 @@ Public Class ETABS_Class
     End Function
 
     '_______________________________________________________________________________________________
-    'Encased composite columns: AISC 360-16 check with the frame forces of the strength combinations
+    'Encased composite columns: AISC 360-16 / 360-22 check with the frame forces of the strength combinations
     Private Function G1_2_ConsComposite() As Integer
         Dim ret As Integer = SelectOutput(New String() {}, ComboNames.DesignSteelStrength)
         If (ret <> 0) Then Return ret
@@ -1177,7 +1256,8 @@ Public Class ETABS_Class
                 Dim kP As Integer = ks.OrderByDescending(Function(k) Math.Abs(P(k))).First()
                 Dim PMM, Shear As Double
                 Dim r As Double = Check.Ratio(P(kP), ks.Select(Function(k) M3(k)).ToArray(), ks.Select(Function(k) M2(k)).ToArray(),
-                                              ks.Max(Function(k) Math.Abs(V2(k))), ks.Max(Function(k) Math.Abs(V3(k))), PMM, Shear)
+                                              ks.Max(Function(k) Math.Abs(V2(k))), ks.Max(Function(k) Math.Abs(V3(k))), PMM, Shear,
+                                              ks.Max(Function(k) Math.Abs(T(k))))
                 GroupRatio = Math.Max(GroupRatio, r)
             Next
             Groups(ID).PMMRatio = GroupRatio
@@ -1269,7 +1349,7 @@ Public Class ETABS_Class
         End Try
     End Function
 
-    'Material properties from the ETABS model; strengths limited by AISC 360-16 I1.3
+    'Material properties from the ETABS model; strengths limited by AISC 360-16 / 360-22 I1.3
     Private Function InitilizeCompositeMaterials() As Integer
         Dim ret As Integer
         Dim M As New CompositeMaterial_
@@ -1299,15 +1379,20 @@ Public Class ETABS_Class
         If M.Fy > 0.525 Then : Errorlogprint("Warning: Fy limited to 525 MPa (AISC I1.3)") : M.Fy = 0.525 : End If
         If M.Fysr > 0.55 Then : Errorlogprint("Warning: Fysr limited to 550 MPa (AISC I1.3)") : M.Fysr = 0.55 : End If
         CompositeMat = M
-        Errorlogprint("Info: composite columns in groups [" & String.Join(", ", Groups.Where(Function(c) c.IsComposite).Select(Function(c) c.GroupName)) &
+        Errorlogprint("Info: composite columns (" & CompositeCodeName(FormInfo.CompositeCode) & ") in groups [" & String.Join(", ", Groups.Where(Function(c) c.IsComposite).Select(Function(c) c.GroupName)) &
                       "], Fy=" & M.Fy * 1000 & " fc=" & M.fc * 1000 & " Fysr=" & M.Fysr * 1000 & " MPa")
         Return ret
+    End Function
+
+    Public Shared Function CompositeCodeName(ByVal Code As CompositeCode_) As String
+        Return If(Code = CompositeCode_.AISC360_22, "AISC 360-22", "AISC 360-16")
     End Function
 
     Public Function Encased(ByVal SecID As Integer) As EncasedIShape
         Dim S As EncasedIShape = Nothing
         If Not EncasedCache.TryGetValue(SecID, S) Then
             S = CompositeSettings.Build(WSections(SecID), CompositeMat)
+            S.Code = FormInfo.CompositeCode
             EncasedCache(SecID) = S
         End If
         Return S

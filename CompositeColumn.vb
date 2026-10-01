@@ -1,12 +1,22 @@
 ﻿Imports System.Xml.Serialization
 
 '=====================================================================================================
-' AISC 360-16 Chapter I composite column design (LRFD)
-' Reference: AISC360_16_Composite_Column_Rules.md
-' Units: consistent model units (kN, mm -> stresses kN/mm²). All formulas are unit independent.
+' AISC 360-16 / 360-22 Chapter I composite column design (LRFD)
+' References: AISC360_16_Composite_Column_Rules.md, AISC360_22_Composite_Column_Rules.md
+' Units: consistent model units (kN, mm -> stresses kN/mm²). All formulas are unit independent
+' except the concrete shear term of 360-22 (sqrt(f'c) in ksi, converted with KSI).
 ' Local axes follow ETABS: axis 2 is along the depth (web of an I shape), M3 = major axis moment,
 ' V2 = major axis shear.
+' Edition differences (filled sections only; encased sections are identical in both editions):
+'   360-22: shear with concrete contribution (I4-1), I5-1a/b interaction for noncompact/slender
+'           filled sections, H3-6 torsion interaction when Tr > 0.2 Tc.
 '=====================================================================================================
+
+'Default 0 = 360-16: backups written before the edition option existed keep their behavior
+Public Enum CompositeCode_
+    AISC360_16 = 0
+    AISC360_22 = 1
+End Enum
 
 Public Enum CompositeClass_
     Compact = 0
@@ -55,10 +65,13 @@ Public MustInherit Class CompositeSection
     Public Const PHI_B As Double = 0.9
     Public Const PHI_T As Double = 0.9
     Public Const PHI_V As Double = 0.9
+    Public Const PHI_TOR As Double = 0.9
     Protected Const STRIPS As Integer = 1000
+    Protected Const KSI As Double = 145.0377        'ksi per kN/mm²
 
     Public Name As String
     Public Mat As CompositeMaterial_
+    Public Code As CompositeCode_ = CompositeCode_.AISC360_16
     Public H As Double      'overall dimension along local 2 (depth)
     Public B As Double      'overall dimension along local 3 (width)
 
@@ -72,7 +85,8 @@ Public MustInherit Class CompositeSection
     Public MustOverride Function Classify(ByVal isFlexure As Boolean) As CompositeClass_
     Public MustOverride Function Pno() As Double
     Public MustOverride Function NominalFlexure(ByVal axis As BendingAxis_) As Double
-    Public MustOverride Function DesignShear(ByVal axis As BendingAxis_) As Double       'phi*Vn
+    'phi*Vn; Mr, Vr: required moment and shear of the combination (360-22 filled sections, Kc)
+    Public MustOverride Function DesignShear(ByVal axis As BendingAxis_, Optional ByVal Mr As Double = 0, Optional ByVal Vr As Double = 0) As Double
     Protected MustOverride Function StiffnessCoefficient() As Double                    'C1 (encased) / C3 (filled)
     Protected MustOverride Function SteelShearArea(ByVal axis As BendingAxis_) As Double
     Protected MustOverride Function SteelTorsion() As Double
@@ -233,17 +247,54 @@ Public MustInherit Class CompositeSection
     End Function
 
     '_____________________________________________________________________________________________
-    'AISC H1-1a / H1-1b (md section 7). Round sections: SRSS of the moments.
-    Public Function InteractionRatio(ByVal Pr As Double, ByVal Pc As Double, ByVal Mr33 As Double, ByVal Mc33 As Double, ByVal Mr22 As Double, ByVal Mc22 As Double) As Double
-        Dim Mterm As Double
-        If IsRound Then
-            Mterm = Math.Sqrt(Mr33 ^ 2 + Mr22 ^ 2) / Math.Min(Mc33, Mc22)
-        Else
-            Mterm = Mr33 / Mc33 + Mr22 / Mc22
-        End If
+    'Flexure term Mr/Mc of the interaction equations. Round sections: SRSS of the moments.
+    Public Function MomentTerm(ByVal Mr33 As Double, ByVal Mc33 As Double, ByVal Mr22 As Double, ByVal Mc22 As Double) As Double
+        If IsRound Then Return Math.Sqrt(Mr33 ^ 2 + Mr22 ^ 2) / Math.Min(Mc33, Mc22)
+        Return Mr33 / Mc33 + Mr22 / Mc22
+    End Function
+
+    'AISC H1-1a / H1-1b (md section 7); 360-22 noncompact/slender filled sections in compression: I5-1a / I5-1b
+    Public Function InteractionRatio(ByVal Pr As Double, ByVal Pc As Double, ByVal Mr33 As Double, ByVal Mc33 As Double, ByVal Mr22 As Double, ByVal Mc22 As Double,
+                                     Optional ByVal Compression As Boolean = True) As Double
+        Dim Mterm As Double = MomentTerm(Mr33, Mc33, Mr22, Mc22)
         Dim axial As Double = Pr / Pc
+        Dim cp, cm As Double
+        If Compression AndAlso Code = CompositeCode_.AISC360_22 AndAlso BalancePoint(cp, cm) Then
+            If axial >= cp Then Return axial + (1 - cp) / cm * Mterm
+            Return (1 - cm) / cp * axial + Mterm
+        End If
         If axial >= 0.2 Then Return axial + 8.0 / 9.0 * Mterm
         Return axial / 2.0 + Mterm
+    End Function
+
+    'Balance point cp, cm of I5-1a/b (Table I5.1); False: the section uses H1.1
+    Protected Overridable Function BalancePoint(ByRef cp As Double, ByRef cm As Double) As Boolean
+        Return False
+    End Function
+
+    'I5-2: csr = (As Fy + Asr Fysr) / (Ac f'c)
+    Protected Function StrengthRatio() As Double
+        Return (SteelArea * Mat.Fy + RebarArea * Mat.Fysr) / (ConcreteArea * Mat.fc)
+    End Function
+
+    'Design torsional strength phi*Tn of the steel tube (H3.1), 0 = torsion not checked. L: member length
+    Public Overridable Function DesignTorsion(ByVal L As Double) As Double
+        Return 0
+    End Function
+
+    '360-22 filled sections (I4-1): Vn = steel + 0.06 Kc Ac sqrt(f'c) [ksi], Kc from the shear span M/(V d)
+    Protected Function ConcreteShear(ByVal d As Double, ByVal Mr As Double, ByVal Vr As Double, ByVal KcMax As Double, ByVal IsCompact As Boolean) As Double
+        If Code <> CompositeCode_.AISC360_22 Then Return 0
+        Dim Kc As Double = 1.0
+        If IsCompact AndAlso Math.Abs(Vr) * d > 0 Then
+            Dim s As Double = Math.Abs(Mr / (Vr * d))
+            If s <= 0.5 Then
+                Kc = KcMax
+            ElseIf s < 0.7 Then
+                Kc = KcMax - (KcMax - 1) * (s - 0.5) / 0.2     'linear, continuous between 0.5 and 0.7
+            End If
+        End If
+        Return 0.06 * Kc * ConcreteArea * Math.Sqrt(Mat.fc * KSI) / KSI
     End Function
 
     'Detailing limits (I2.1a / I2.2a); returns a ratio (> 1: not satisfied)
@@ -336,8 +387,8 @@ Public Class EncasedIShape
     Public Overrides Function NominalFlexure(axis As BendingAxis_) As Double
         Return PlasticMoment(axis)
     End Function
-    'I4.1(b)(a): steel section alone, Chapter G
-    Public Overrides Function DesignShear(axis As BendingAxis_) As Double
+    'I4.1(b)(a): steel section alone, Chapter G (same in 360-16 and 360-22)
+    Public Overrides Function DesignShear(axis As BendingAxis_, Optional Mr As Double = 0, Optional Vr As Double = 0) As Double
         If axis = BendingAxis_.Major Then
             Dim h As Double = Steel.Depth - 2 * If(Steel.KDES > 0, Steel.KDES, Steel.FlangeThickness)
             Dim Aw As Double = Steel.Depth * Steel.WebThickness
@@ -516,10 +567,36 @@ Public Class FilledBox
                 Return 0
         End Select
     End Function
-    'I4.1(a)(a) steel alone, G4: Aw = 2 h t, h = H - 3t, kv = 5
-    Public Overrides Function DesignShear(axis As BendingAxis_) As Double
-        Dim h As Double = If(axis = BendingAxis_.Major, H, B) - 3 * t
-        Return PHI_V * 0.6 * Mat.Fy * (2 * h * t) * ShearCv(h / t, 5.0)
+    'Steel: G4, Aw = 2 h t, h = H - 3t, kv = 5 (360-16 I4.1(a)). 360-22: + concrete term (I4-1), Kc <= 10
+    Public Overrides Function DesignShear(axis As BendingAxis_, Optional Mr As Double = 0, Optional Vr As Double = 0) As Double
+        Dim d As Double = If(axis = BendingAxis_.Major, H, B)
+        Dim hw As Double = d - 3 * t
+        Dim Vs As Double = 0.6 * Mat.Fy * (2 * hw * t) * ShearCv(hw / t, 5.0)
+        Return PHI_V * (Vs + ConcreteShear(d, Mr, Vr, 10.0, FlexureClass(axis) = CompositeClass_.Compact))
+    End Function
+    'Table I5.1, rectangular: cp = 0.17 csr^-0.4, cm = 1.06 csr^-0.11 >= 1 (csr >= 0.5) / 0.90 csr^-0.36 <= 1.67
+    Protected Overrides Function BalancePoint(ByRef cp As Double, ByRef cm As Double) As Boolean
+        If Classify(False) = CompositeClass_.Compact AndAlso FlexureClass(BendingAxis_.Major) = CompositeClass_.Compact AndAlso
+           FlexureClass(BendingAxis_.Minor) = CompositeClass_.Compact Then Return False
+        Dim csr As Double = StrengthRatio()
+        cp = 0.17 * csr ^ -0.4
+        cm = If(csr >= 0.5, Math.Max(1.06 * csr ^ -0.11, 1.0), Math.Min(0.9 * csr ^ -0.36, 1.67))
+        Return True
+    End Function
+    'H3.1(b) rectangular HSS: C = 2(B-t)(H-t)t - 4.5(4-pi)t³, h = longer flat width
+    Public Overrides Function DesignTorsion(L As Double) As Double
+        If Code <> CompositeCode_.AISC360_22 Then Return 0
+        Dim C As Double = 2 * (B - t) * (H - t) * t - 4.5 * (4 - Math.PI) * t ^ 3
+        Dim h_t As Double = (Math.Max(H, B) - 3 * t) / t
+        Dim Fcr As Double
+        If h_t <= 2.45 * Root Then
+            Fcr = 0.6 * Mat.Fy
+        ElseIf h_t <= 3.07 * Root Then
+            Fcr = 0.6 * Mat.Fy * 2.45 * Root / h_t
+        Else
+            Fcr = 0.458 * Math.PI ^ 2 * Mat.Es / h_t ^ 2
+        End If
+        Return PHI_TOR * Fcr * C
     End Function
     Protected Overrides Function SteelShearArea(axis As BendingAxis_) As Double
         Return 2 * t * If(axis = BendingAxis_.Major, H, B)
@@ -633,10 +710,27 @@ Public Class FilledPipe
                 Return 0    'lambda_r = lambda_max: slender pipes are not permitted in flexure
         End Select
     End Function
-    'G5 (Lv term neglected): Fcr = 0.78 E /(D/t)^1.5 <= 0.6 Fy, Vn = Fcr Ag / 2
-    Public Overrides Function DesignShear(axis As BendingAxis_) As Double
+    'G5 (Lv term neglected): Fcr = 0.78 E /(D/t)^1.5 <= 0.6 Fy, Vn = Fcr Ag / 2 (360-16 I4.1(a))
+    '360-22 (md 5.3): Vn = Fcr Av + 0.06 Kc Ac sqrt(f'c), Av = 2 As / pi, Kc <= 9
+    Public Overrides Function DesignShear(axis As BendingAxis_, Optional Mr As Double = 0, Optional Vr As Double = 0) As Double
         Dim Fcrv As Double = Math.Min(0.78 * Mat.Es / Lambda ^ 1.5, 0.6 * Mat.Fy)
-        Return PHI_V * Fcrv * SteelArea / 2
+        If Code <> CompositeCode_.AISC360_22 Then Return PHI_V * Fcrv * SteelArea / 2
+        Return PHI_V * (Fcrv * 2 * SteelArea / Math.PI + ConcreteShear(D, Mr, Vr, 9.0, Classify(True) = CompositeClass_.Compact))
+    End Function
+    'Table I5.1, round: cp = 0.27 csr^-0.4, cm = 1.10 csr^-0.08 >= 1 (csr >= 0.5) / 0.95 csr^-0.32 <= 1.67
+    Protected Overrides Function BalancePoint(ByRef cp As Double, ByRef cm As Double) As Boolean
+        If Classify(False) = CompositeClass_.Compact AndAlso Classify(True) = CompositeClass_.Compact Then Return False
+        Dim csr As Double = StrengthRatio()
+        cp = 0.27 * csr ^ -0.4
+        cm = If(csr >= 0.5, Math.Max(1.1 * csr ^ -0.08, 1.0), Math.Min(0.95 * csr ^ -0.32, 1.67))
+        Return True
+    End Function
+    'H3.1(a) round HSS: C = pi (D-t)² t / 2, Fcr = max(H3-2a, H3-2b) <= 0.6 Fy
+    Public Overrides Function DesignTorsion(L As Double) As Double
+        If Code <> CompositeCode_.AISC360_22 Then Return 0
+        Dim C As Double = Math.PI * (D - t) ^ 2 * t / 2
+        Dim Fcr As Double = Math.Max(1.23 * Mat.Es / (Math.Sqrt(L / D) * Lambda ^ 1.25), 0.6 * Mat.Es / Lambda ^ 1.5)
+        Return PHI_TOR * Math.Min(Fcr, 0.6 * Mat.Fy) * C
     End Function
     Protected Overrides Function SteelShearArea(axis As BendingAxis_) As Double
         Return SteelArea / 2
@@ -672,7 +766,7 @@ Public Class CompositeMemberCheck
     Public K33 As Double = 1.0      'effective length factor, buckling about local 3 (major)
     Public B2 As Double = 1.0       'sway amplifier (1.0 if the analysis includes P-Delta)
 
-    Private PcComp, PcTens, Mc33, Mc22, Vc2, Vc3, Pe1_33, Pe1_22 As Double
+    Private PcComp, PcTens, Mc33, Mc22, Tc, Pe1_33, Pe1_22 As Double
 
     Public Sub New(ByVal Sec As CompositeSection, ByVal Length As Double, ByVal K2 As Double, ByVal K3 As Double, ByVal B2factor As Double)
         Section = Sec : L = Length : K22 = K2 : K33 = K3 : B2 = B2factor
@@ -680,8 +774,7 @@ Public Class CompositeMemberCheck
         PcTens = CompositeSection.PHI_T * Sec.NominalTension()
         Mc33 = Sec.DesignFlexure(BendingAxis_.Major)
         Mc22 = Sec.DesignFlexure(BendingAxis_.Minor)
-        Vc2 = Sec.DesignShear(BendingAxis_.Major)
-        Vc3 = Sec.DesignShear(BendingAxis_.Minor)
+        Tc = Sec.DesignTorsion(L)
         'I1.5: flexural stiffness 0.64 EIeff for stability (Appendix 8, EI*)
         Pe1_33 = Math.PI ^ 2 * 0.64 * Sec.EIeff(BendingAxis_.Major) / L ^ 2
         Pe1_22 = Math.PI ^ 2 * 0.64 * Sec.EIeff(BendingAxis_.Minor) / L ^ 2
@@ -701,12 +794,14 @@ Public Class CompositeMemberCheck
         Return Math.Max(Cm_ / den, 1.0)
     End Function
 
-    'P: axial (compression negative, ETABS), M3/M2 at the stations i..j, V2/V3 max absolute shears
+    'P: axial (compression negative, ETABS), M3/M2 at the stations i..j, V2/V3/T max absolute shears / torsion
     'Returns D/C = max(PMM, shear) for one load combination
-    Public Function Ratio(ByVal P As Double, ByVal M3() As Double, ByVal M2() As Double, ByVal V2 As Double, ByVal V3 As Double, ByRef PMM As Double, ByRef Shear As Double) As Double
+    Public Function Ratio(ByVal P As Double, ByVal M3() As Double, ByVal M2() As Double, ByVal V2 As Double, ByVal V3 As Double, ByRef PMM As Double, ByRef Shear As Double,
+                          Optional ByVal T As Double = 0) As Double
         Dim Pr As Double = Math.Abs(P)
-        Dim M33max As Double = M3.Max(Function(m) Math.Abs(m))
-        Dim M22max As Double = M2.Max(Function(m) Math.Abs(m))
+        Dim M33 As Double = M3.Max(Function(m) Math.Abs(m))
+        Dim M22 As Double = M2.Max(Function(m) Math.Abs(m))
+        Dim M33max As Double = M33, M22max As Double = M22
         Dim Pc As Double
         If P < 0 Then
             Pc = PcComp
@@ -715,8 +810,15 @@ Public Class CompositeMemberCheck
         Else
             Pc = PcTens
         End If
-        PMM = Section.InteractionRatio(Pr, Pc, M33max, Mc33, M22max, Mc22)
-        Shear = Math.Max(Math.Abs(V2) / Vc2, Math.Abs(V3) / Vc3)
+        PMM = Section.InteractionRatio(Pr, Pc, M33max, Mc33, M22max, Mc22, P < 0)
+        Dim v2r As Double = Math.Abs(V2) / Section.DesignShear(BendingAxis_.Major, M33, V2)
+        Dim v3r As Double = Math.Abs(V3) / Section.DesignShear(BendingAxis_.Minor, M22, V3)
+        Shear = Math.Max(v2r, v3r)
+        'H3-6 (md 7.4): significant torsion, Tr > 0.2 Tc
+        If Tc > 0 AndAlso Math.Abs(T) > 0.2 * Tc Then
+            Dim Tor As Double = Pr / Pc + Section.MomentTerm(M33max, Mc33, M22max, Mc22) + (v2r + v3r + Math.Abs(T) / Tc) ^ 2
+            PMM = Math.Max(PMM, Tor)
+        End If
         Return Math.Max(PMM, Shear)
     End Function
 End Class

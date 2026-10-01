@@ -9,6 +9,7 @@ Public Class MainForm
 
     Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = 0
+        If CompositeCodeBox.SelectedIndex < 0 Then CompositeCodeBox.SelectedIndex = CompositeCode_.AISC360_22
     End Sub
 
     'VB Rnd: Rnd(-1) followed by Randomize(seed) gives a repeatable sequence for the seed
@@ -179,6 +180,7 @@ Public Class MainForm
         FormInfo.HideETABS = HideSAP2000.Checked
         FormInfo.CheckStructure = CheckStructure.Checked
         FormInfo.CompositeColumns = CompositeColumns.Checked
+        FormInfo.CompositeCode = Math.Max(CompositeCodeBox.SelectedIndex, 0)
         FormInfo.AutoCombos = AutoCombos.Checked
         FormInfo.DriftComboMode = Math.Max(DriftCombos.SelectedIndex, 0)
         Dim Seed As Integer = CInt(ToDbl(SeedBox.Text))
@@ -209,6 +211,7 @@ Public Class MainForm
         HideSAP2000.Checked = FormInfo.HideETABS
         CheckStructure.Checked = FormInfo.CheckStructure
         CompositeColumns.Checked = FormInfo.CompositeColumns
+        CompositeCodeBox.SelectedIndex = FormInfo.CompositeCode
         AutoCombos.Checked = FormInfo.AutoCombos
         DriftCombos.SelectedIndex = FormInfo.DriftComboMode
         SeedBox.Text = FormInfo.Seed

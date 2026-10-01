@@ -1,7 +1,98 @@
 # Değişiklik Kaydı
 
-Kompozit kolonlu uzay çelik çerçeve optimizasyon programı (VB.NET, ETABS 19 OAPI).
-Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`
+Kompozit kolonlu uzay çelik çerçeve optimizasyon programı (VB.NET, ETABS 22 / ETABS 19 OAPI).
+Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum git'te (`7e6b41f`).
+
+---
+
+## 2026-10-01 — Aşama 4: Geçici çalışma klasörü
+
+- Program artık seçilen modeli değiştirmiyor. Önceden `E3_Analysis` her analizde girdi dosyasının üzerine kaydediyordu.
+- **Çalışma kopyası:**
+  - Koşu başında model `%TEMP%\SteelFrameOpt\<model>_<yyyyMMdd_HHmmss>\` klasörüne kopyalanır. Klasör `App.config` > `WorkFolder` ile değiştirilebilir.
+  - ETABS bu kopyayı açar; tüm kaydetme ve analizler orada yapılır.
+- **Sonuç:** OneDrive klasöründe analiz dosyaları (`.Y0x`, `.K_x`, `.msh` …) oluşmaz.
+- **Kalan çıktılar:** `ErrorLog.txt` ve `<model>_best.EDB` önceki gibi orijinal modelin klasörüne yazılır.
+- **Temizlik:**
+  - Çalışma klasörü yeni `ETABS_Class.Shutdown()` içinde, ETABS kapandıktan sonra silinir. `Close` bunu çağırır.
+  - Silinemezse uyarı yazılır, koşu bozulmaz.
+  - Program çökerse klasör `%TEMP%` altında kalır.
+- **Test** (ETABS 22.6, kompozit mod, 1 değerlendirme):
+  - Orijinal modelin MD5 değeri koşudan önce ve sonra aynı.
+  - Model klasöründe analiz dosyası oluşmadı.
+  - Çalışma klasörü oluşturuldu ve sonda silindi; arkada ETABS süreci kalmadı.
+  - Sonuçlar Aşama 3 testiyle aynı: maliyet 7906,97, ceza 1,3548.
+
+---
+
+## 2026-10-01 — Aşama 3: ETABS 22 ve AISC 360-22
+
+**Yaklaşım:** İki sürüm birlikte korunur.
+- ETABS 22 varsayılandır; ETABS 19 ile derleme ve çalışma yolu açık kalır.
+- Kompozit kontrol için formda *Composite code* (`AISC 360-16` / `AISC 360-22`) seçilir.
+- 360-16 modu, Aşama 2 sonuçlarını birebir korur.
+
+### ETABS 22 entegrasyonu
+- **API:** ETABS 22 `ETABSv1.dll` (2.8, .NET Standard 2.0) .NET Framework 4.7.2 programından sorunsuz çalışıyor (ETABS 22.6.0 ile denendi).
+  - `.vbproj`: `ETABSDir` özelliği ETABS 22 kuruluysa onu, değilse ETABS 19'u seçer.
+  - `netstandard` ve `Microsoft.Win32.Registry.dll` (ETABS 22 klasöründen, net461 facade) referansları eklendi.
+- **`App.config`:** ETABS 22 yolu ve `AISC16M.xml` (AISC14M'nin üst kümesi, aynı format).
+  - Yol bulunamazsa kurulu en yeni ETABS kullanılır (`FindInstalledETABS`).
+  - Kütüphane bulunamazsa aynı dosya adı o sürümün `Property Libraries` klasöründe aranır.
+- **Günlük:** bağlanılan ETABS sürümü (`GetVersion`) ve gerçekten atanan çelik kodu (`GetCode`) `ErrorLog.txt` dosyasına yazılır.
+- **Çelik kodu listesi:** `AISC 360-22` ve `AISC 360-16` eklendi; varsayılan `AISC 360-22`.
+  - ETABS 22 ikisini de kabul ediyor (`SetCode` + `GetCode` ile doğrulandı). Geçersiz ad `ret = 1` döndürüyor.
+  - ETABS 19 bu kodları kabul etmez.
+- ETABS 22 API'sinde de Section Designer kesiti kurulamıyor (`cPropFrameSDShape` yalnızca `Get…` içeriyor). General section yaklaşımı aynen kullanılıyor.
+
+### Kompozit çözücü: AISC 360-22 (`CompositeColumn.vb`)
+Yeni `CompositeCode_` sürüm seçimi (`CompositeSection.Code`), formda *Composite code* ve `FormInfo.CompositeCode` (eski yedeklerde 0 = 360-16).
+
+| Konu | 360-16 modu | 360-22 modu (rehber `AISC360_22_…md`) |
+|---|---|---|
+| Gömülü I kesit | — | **Fark yok** (Pno, C1, EI_eff, PSDM, kesme, detay). Çıktılar 360-16 ile birebir aynı. |
+| Dolgulu kutu/boru kesme | Yalnız çelik (G4 / G5) | Çelik + beton katkısı 0,06·Kc·Ac·√f'c (I4-1). Kc, M/(V·d) oranından hesaplanır; kutu en fazla 10, boru en fazla 9. Boruda Av = 2As/π. |
+| Kompakt olmayan / narin dolgulu kesit, basınç + eğilme | H1-1a/b | I5-1a/b, Tablo I5.1 (c_sr, c_p, c_m) |
+| Burulma (dolgulu) | Kontrol yok | Tr > 0,2·Tc ise H3-6. Tc yalnızca çelik borudan (H3.1) alınır. |
+
+**Rehber ile ilgili notlar** (360-22 metni elimizde yok; 360-16 metni `MakaleYayınlar/PDF` klasöründe):
+- **I5-1a/b ve Tablo I5.1 360-16'da da vardır**, orada H1.1'e alternatif bir seçenektir. Rehber bunları 360-22 yeniliği olarak sunuyor.
+  - 360-16 modunda önceki davranış (H1) korundu.
+  - 360-22 modunda, rehberin "zorunlu" ifadesine göre I5 kullanılıyor.
+- Tablo I5.1'deki sınırlar (c_m ≥ 1,0 / ≤ 1,67) rehberde yok; 360-16 metninden alındı. Üsler negatiftir (c_sr⁻⁰·⁴ vb.).
+- Rehberdeki Kc enterpolasyonu ters yazılmış: 0,5'te 1 veriyor, 0,7'ye yaklaşırken 10'a çıkıyor, 0,7'de 1'e düşüyor. **Sürekli hale getirildi:** 0,5'te Kc_max, 0,7'de 1.
+- **Doğrulanmalı:**
+  - Beton kesme katkısında √f'c birimi **ksi** alındı. Rehberdeki psi yorumu yaklaşık 30 kat küçük değer verir. Örnek: 400×400×20 kutu, Kc = 1 → 108 kN (çelik 2815 kN).
+  - Boruda Av = 2As/π (rehberden). G5 burkulma sınırı korundu.
+  - Kutu çelik kesmesinde Cv korundu; rehberde yalnızca 0,6·Av·Fy yazıyor.
+  - Malzeme sınırları (I1.3) iki sürümde de aynı alındı.
+- Rehberin "360-16'da boru C2 = 0,90" ifadesi yanlış; iki sürümde de 0,95.
+- ASD katsayıları eklenmedi; program LRFD çalışıyor.
+
+### Bulunan ve düzeltilen hata
+- **`FilledBox.DesignShear` güçlü eksende negatif kesme dayanımı veriyordu** (ör. 400×400×20 için −447 kN; doğrusu 2534 kN). Sebep VB'nin büyük/küçük harf duyarsızlığı:
+  - `Dim h = If(…, H, B) - 3*t` satırında `H`, tanımlanmakta olan yerel `h`'yi (değeri 0) okuyordu.
+  - Kutu kesit optimizasyona bağlı olmadığı için önceki sonuçlar etkilenmedi.
+  - Tüm kaynakta aynı kalıp tarandı; başka örnek yok.
+
+### Testler
+- **Regresyon (360-16):** 12 W kesitinden üretilen gömülü kesitler, 4 kutu ve 3 boru kesit; her biri için 15 kuvvet durumu kullanıldı. Yeni kod, git'teki Aşama 2 koduyla birebir aynı çıktıyı verdi. Tek fark, yukarıdaki kutu kesme düzeltmesi.
+- **Gömülü 360-22 ile 360-16:** tüm çıktılar birebir aynı.
+- **360-22 el hesapları:** 24 kontrolün tamamı geçti.
+  - Kutu kesme: Kc = 1 / 5,5 / 10 ve 0,5–0,7 sürekliliği.
+  - Kutu ve boru Tc.
+  - Kompakt kutuda H1 korunuyor.
+  - Kompakt olmayan kutu: I5-1a/b; denge noktasında oran 1,0. Çekmede H1 kullanılıyor.
+  - Boru: kesme, SRSS ile I5.
+  - H3-6: Tr = 0,5·Tc dikkate alınıyor, 0,15·Tc ihmal ediliyor; 360-16'da kontrol yok.
+- **Derleme:** proje ETABS 22 DLL'ine karşı hatasız derleniyor.
+- **ETABS 22.6 uçtan uca** (`525M/525Member_steel.EDB` kopyası, konsol test programı, ETABS gizli):
+  - **Kompozit mod, 360-22, çelik kodu AISC 360-22:**
+    - Başlangıç 117 s: 289 W'lik otomatik listeler oluşturuldu, 14 değişken, 10 kompozit grup.
+    - 2 değerlendirme hatasız tamamlandı (her biri yaklaşık 82 s); kompozit oranlar 0,64–0,96.
+  - **Çelik mod, AISC 360-16:** 1 değerlendirme hatasız tamamlandı (82 s).
+  - ETABS 19 modeli ETABS 22'de otomatik dönüştürüldü. Testlerden sonra arkada ETABS süreci kalmadı.
+  - Form (GUI) akışı elle test edilmedi.
 
 ---
 

@@ -280,6 +280,7 @@ Public Class MiscellaneousStructures
         Public AutoCombos As Boolean        'create default design combos if the model has none
         Public DriftComboMode As DriftComboMode_
         Public Seed As Integer              'random seed of the run
+        Public CompositeCode As CompositeCode_  'edition of the composite column check (old backups: 360-16)
     End Structure
 
     Public Enum DriftComboMode_

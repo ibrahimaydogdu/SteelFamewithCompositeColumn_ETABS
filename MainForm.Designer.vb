@@ -57,6 +57,8 @@ Partial Class MainForm
         Me.DriftCombos = New System.Windows.Forms.ComboBox()
         Me.Label25 = New System.Windows.Forms.Label()
         Me.SeedBox = New System.Windows.Forms.TextBox()
+        Me.Label26 = New System.Windows.Forms.Label()
+        Me.CompositeCodeBox = New System.Windows.Forms.ComboBox()
         Me.Label20 = New System.Windows.Forms.Label()
         Me.Dcode_Steel = New System.Windows.Forms.ComboBox()
         Me.NofJoint = New System.Windows.Forms.TextBox()
@@ -418,9 +420,11 @@ Partial Class MainForm
         Me.GroupBox8.Controls.Add(Me.DriftCombos)
         Me.GroupBox8.Controls.Add(Me.Label25)
         Me.GroupBox8.Controls.Add(Me.SeedBox)
+        Me.GroupBox8.Controls.Add(Me.Label26)
+        Me.GroupBox8.Controls.Add(Me.CompositeCodeBox)
         Me.GroupBox8.Location = New System.Drawing.Point(275, 0)
         Me.GroupBox8.Name = "GroupBox8"
-        Me.GroupBox8.Size = New System.Drawing.Size(400, 175)
+        Me.GroupBox8.Size = New System.Drawing.Size(400, 190)
         Me.GroupBox8.TabIndex = 26
         Me.GroupBox8.TabStop = False
         Me.GroupBox8.Text = "Analysis / Composite Options"
@@ -432,7 +436,7 @@ Partial Class MainForm
         Me.CompositeColumns.Name = "CompositeColumns"
         Me.CompositeColumns.Size = New System.Drawing.Size(300, 20)
         Me.CompositeColumns.TabIndex = 0
-        Me.CompositeColumns.Text = "Encased composite columns (AISC 360-16)"
+        Me.CompositeColumns.Text = "Encased composite columns"
         Me.CompositeColumns.UseVisualStyleBackColor = True
         '
         'AutoCombos
@@ -484,6 +488,25 @@ Partial Class MainForm
         Me.SeedBox.Text = "0"
         Me.SeedBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
         '
+        'Label26
+        '
+        Me.Label26.AutoSize = True
+        Me.Label26.Location = New System.Drawing.Point(8, 156)
+        Me.Label26.Name = "Label26"
+        Me.Label26.Size = New System.Drawing.Size(110, 16)
+        Me.Label26.TabIndex = 6
+        Me.Label26.Text = "Composite code"
+        '
+        'CompositeCodeBox
+        '
+        Me.CompositeCodeBox.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.CompositeCodeBox.FormattingEnabled = True
+        Me.CompositeCodeBox.Items.AddRange(New Object() {"AISC 360-16", "AISC 360-22"})
+        Me.CompositeCodeBox.Location = New System.Drawing.Point(150, 152)
+        Me.CompositeCodeBox.Name = "CompositeCodeBox"
+        Me.CompositeCodeBox.Size = New System.Drawing.Size(140, 24)
+        Me.CompositeCodeBox.TabIndex = 7
+        '
         'GroupBox5
         '
         Me.GroupBox5.Controls.Add(Me.Label20)
@@ -527,13 +550,13 @@ Partial Class MainForm
         'Dcode_Steel
         '
         Me.Dcode_Steel.FormattingEnabled = True
-        Me.Dcode_Steel.Items.AddRange(New Object() {"AISC 360-10", "AISC 360-05", "AISC LRFD 93", "AISC ASD 89", "AS 4100-1998", "BS 5950-2000", "Chinese 2010", "Chinese 2018", "CSA S16-14", "CSA S16-09", "Eurocode 3-2005", "IS 800:2007", "Italian NTC 2018", "Italian NTC 2008", "KBC 2009", "NZS 3404:1997", "SP 16.13330.2017"})
+        Me.Dcode_Steel.Items.AddRange(New Object() {"AISC 360-22", "AISC 360-16", "AISC 360-10", "AISC 360-05", "AISC LRFD 93", "AISC ASD 89", "AS 4100-1998", "BS 5950-2000", "Chinese 2010", "Chinese 2018", "CSA S16-14", "CSA S16-09", "Eurocode 3-2005", "IS 800:2007", "Italian NTC 2018", "Italian NTC 2008", "KBC 2009", "NZS 3404:1997", "SP 16.13330.2017"})
         Me.Dcode_Steel.Location = New System.Drawing.Point(140, 197)
         Me.Dcode_Steel.Margin = New System.Windows.Forms.Padding(4)
         Me.Dcode_Steel.Name = "Dcode_Steel"
         Me.Dcode_Steel.Size = New System.Drawing.Size(120, 24)
         Me.Dcode_Steel.TabIndex = 47
-        Me.Dcode_Steel.Text = "AISC 360-10"
+        Me.Dcode_Steel.Text = "AISC 360-22"
         '
         'NofJoint
         '
@@ -1121,4 +1144,6 @@ Partial Class MainForm
     Friend WithEvents DriftCombos As ComboBox
     Friend WithEvents Label25 As Label
     Friend WithEvents SeedBox As TextBox
+    Friend WithEvents Label26 As Label
+    Friend WithEvents CompositeCodeBox As ComboBox
 End Class
