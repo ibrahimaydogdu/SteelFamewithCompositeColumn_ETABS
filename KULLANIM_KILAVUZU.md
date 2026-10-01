@@ -45,6 +45,13 @@ Program seçilen modeli **değiştirmez**:
 - *Hide ETABS*: ETABS penceresini gizler.
 - *Load BackUp File*: `BackUp.xml` dosyasından kaldığı yerden devam eder.
 - *Check Structure Only*: çıktı XML'indeki en iyi kesitleri düzeltme yapmadan kontrol eder. Sonuç `<çıktı>.check.xml` dosyasına yazılır.
+- Koşu sırasında gösterilenler:
+  - *Analyses*: yapılan / en fazla analiz sayısı.
+  - *Best cost*: en iyi uygun (cezasız) çözümün maliyeti.
+  - *Elapsed*, *Remaining*: geçen ve tahmini kalan süre.
+  - *Av. analysis (s)*: analiz başına ortalama süre.
+  - İlerleme çubuğu.
+  - Listeler: en iyi çözümün kesitleri ve iyileşme geçmişi.
 
 **Structural Properties sekmesi**
 - Öteleme sınırları (H/oran) ve çelik tasarım kodu (varsayılan `AISC 360-22`).
@@ -63,8 +70,22 @@ Program seçilen modeli **değiştirmez**:
     - "Lateral (wind / earthquake) only": yalnızca rüzgâr veya deprem içeren kombinasyonlar; bunlar yoksa bu tür yük durumları.
     - Not: ETABS analizi yine tüm durumları çözer; kazanç sonuç okuma aşamasındadır.
   - *Random seed*: 0 girilirse her koşu farklı olur (saat bazlı). Pozitif bir sayı aynı koşuyu tekrarlar. Kullanılan tohum pencere başlığında, `ErrorLog.txt` dosyasında ve sonuç XML'inde yazar. Çoklu koşu için alanı 0 bırakıp programı tekrar çalıştırın.
+  - *Skip analysis cases not used by design / drift checks* (varsayılan açık): dayanım ve sehim kombinasyonlarında ve öteleme kontrolünde kullanılmayan yük durumları çözülmez.
+    - Bu durumların ön koşulları, Modal durumlar ve ETABS iç durumları (`~…`) her zaman çözülür.
+    - Kapatılan durumlar `ErrorLog.txt` dosyasında listelenir.
+    - En iyi tasarım (`_best.EDB`) tüm durumlarla yeniden analiz edilir.
 
-**Optimization sekmesi:** yöntem (HS, BBO, Whale, Dandelion), bellek boyutu, en fazla analiz sayısı ve yöntem parametreleri.
+**Optimization sekmesi**
+- **General Parameters:** bellek boyutu (*Memory size*), en fazla analiz sayısı (*Max. analyses*), bellek güncelleme türü, yöntem (HS, BBO, Whale, Dandelion).
+- **Evaluation:**
+  - *Repair mode*: kısıt ihlallerinin düzeltilme şekli.
+    - **Combined (faster)**, varsayılan: öteleme ve PMM düzeltmeleri tek analizin sonuçlarından birlikte yapılır, ardından bir yeniden analiz. 525M modelinde değerlendirme başına yaklaşık 26 s.
+    - **Sequential (original)**: önceki yöntem; her düzeltme adımından sonra ayrı analiz (en fazla 6 analiz, yaklaşık 68 s).
+    - İki mod farklı sonuçlar verir. Karşılaştırma yapılacak koşularda aynı mod kullanılmalıdır.
+  - *Reuse results of repeated designs* (varsayılan açık): daha önce değerlendirilmiş bir tasarım tekrar üretilirse ETABS çağrılmaz, saklanan sonuç kullanılır.
+    - Bu değerlendirmeler analiz sayısına eklenmez.
+    - Art arda 20 çevrimde yeni bir tasarım değerlendirilmezse arama yakınsamış kabul edilir ve koşu biter.
+- **HS / BBO parametreleri.**
 
 ## 4. Kompozit kolon ayarları (`EncasedSections.xml`)
 Her W kesiti için bir gömülü kesit üretilir:
@@ -84,7 +105,17 @@ Kontrol edilenler (AISC 360-16 / 360-22, LRFD; gömülü kesitte iki sürüm ayn
 
 Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğüdür.
 
-ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.
+**ETABS ile doğrulama (ETABS 20+):** arama sırasında kolonlar hızlı iç çözücüyle kontrol edilir. Koşu sonunda en iyi tasarım ETABS'in kendi kompozit kolon tasarımıyla doğrulanır; *Check Structure* modunda da aynı doğrulama yapılır.
+- Kolonlar gerçek gömülü kesitlere (Concrete Encasement Rectangle + donatı) çevrilir, model yeniden analiz edilir ve ETABS kompozit tasarımı formdaki *Composite code* ile çalışır.
+- Her grup için ETABS PMM ve kesme oranı, iç çözücünün dayanım ve detay oranlarıyla yan yana yazılır:
+  - `ErrorLog.txt`: `Info: ETABS composite check …`
+  - sonuç XML'i: `ETABSCompositeCheck`
+  - `.check.xml`
+- `_best.EDB` gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
+- Bu adım tüm kolonlar için birkaç dakika sürer (525M: yaklaşık 3 dakika).
+- **Dikkat:** 525M modelinde ETABS oranları iç çözücüden %1–28 yüksek çıktı. Final kontrolünde ETABS oranının 1'i aşıp aşmadığına bakın.
+
+Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.
 
 ## 5. Çıktılar
 | Dosya | İçerik |
@@ -92,7 +123,7 @@ ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit
 | Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
 | `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
 | Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir |
-| `ErrorLog.txt` (model klasörü) | Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler), uyarılar (tamamlanamayan analizler vb.) ve hatalar |
+| `ErrorLog.txt` (model klasörü) | Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |
 | `BackUp.xml` (program klasörü) | Her çevrimde güncellenen yedek |
 
 ## 6. Sık karşılaşılan durumlar

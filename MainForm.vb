@@ -6,10 +6,16 @@ Public Class MainForm
     Public SAP2000Class As ETABS_Class
     Public OptClass As OptimizationClass
     Public ID_mem As Integer
+    Private Const MAX_STALL_LOOPS As Integer = 20
+    Private ReadOnly AppTitle As String = "Steel Frame Optimization with Composite Columns (ETABS)"
+    'progress display: time and analysis count since the ETABS model is ready (backup: since the restart)
+    Private RunClock As Stopwatch
+    Private IterAtStart As Integer
 
     Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = 0
         If CompositeCodeBox.SelectedIndex < 0 Then CompositeCodeBox.SelectedIndex = CompositeCode_.AISC360_22
+        If RepairModeBox.SelectedIndex < 0 Then RepairModeBox.SelectedIndex = MiscellaneousStructures.RepairMode_.Combined
     End Sub
 
     'VB Rnd: Rnd(-1) followed by Randomize(seed) gives a repeatable sequence for the seed
@@ -34,9 +40,12 @@ Public Class MainForm
             CloseETABS(ret)
             Exit Sub
         End If
-        Me.Text = FormInfo.OptInfo.OptimizationMethod.ToString() & "  (seed " & FormInfo.Seed & ")"
+        Me.Text = AppTitle & "  -  " & FormInfo.OptInfo.OptimizationMethod.ToString() & "  (seed " & FormInfo.Seed & ")"
         If SAP2000Class IsNot Nothing Then SAP2000Class.Errorlogprint("Info: run started, method " & FormInfo.OptInfo.OptimizationMethod.ToString() & ", seed " & FormInfo.Seed)
+        'with the result cache a converged search may produce no new design: stop after MAX_STALL_LOOPS such loops
+        Dim Stall As Integer = 0
         Do While OptClass.iter < FormInfo.OptInfo.MaxFuncEvaluation
+            Dim IterBefore As Integer = OptClass.iter
             OptClass.ILoop += 1
             OptClass.Memory = OptClass.Memory.OrderBy(Function(c) c.PenalizedCost).ToList()
             For Imem = 0 To FormInfo.OptInfo.MemorySize - 1
@@ -58,6 +67,11 @@ Public Class MainForm
                 End If
             End If
             OptClass.Backup_Write()
+            Stall = If(OptClass.iter = IterBefore, Stall + 1, 0)
+            If Stall >= MAX_STALL_LOOPS Then
+                LogError("Info: search converged, no new design in " & MAX_STALL_LOOPS & " loops (" & OptClass.iter & " analyses)")
+                Exit Do
+            End If
         Loop
         OptClass.Opt_Finalize()
         FinishTimeBox.Text = TimeOfDay.ToString("hh:mm:ss")
@@ -181,6 +195,9 @@ Public Class MainForm
         FormInfo.CheckStructure = CheckStructure.Checked
         FormInfo.CompositeColumns = CompositeColumns.Checked
         FormInfo.CompositeCode = Math.Max(CompositeCodeBox.SelectedIndex, 0)
+        FormInfo.RepairMode = Math.Max(RepairModeBox.SelectedIndex, 0)
+        FormInfo.UseCache = ResultCache.Checked
+        FormInfo.SkipUnusedCases = SkipCases.Checked
         FormInfo.AutoCombos = AutoCombos.Checked
         FormInfo.DriftComboMode = Math.Max(DriftCombos.SelectedIndex, 0)
         Dim Seed As Integer = CInt(ToDbl(SeedBox.Text))
@@ -212,6 +229,9 @@ Public Class MainForm
         CheckStructure.Checked = FormInfo.CheckStructure
         CompositeColumns.Checked = FormInfo.CompositeColumns
         CompositeCodeBox.SelectedIndex = FormInfo.CompositeCode
+        RepairModeBox.SelectedIndex = FormInfo.RepairMode
+        ResultCache.Checked = FormInfo.UseCache
+        SkipCases.Checked = FormInfo.SkipUnusedCases
         AutoCombos.Checked = FormInfo.AutoCombos
         DriftCombos.SelectedIndex = FormInfo.DriftComboMode
         SeedBox.Text = FormInfo.Seed
@@ -280,6 +300,9 @@ Public Class MainForm
             OptClass.Lb = SAP2000Class.Lb
             StartTimeBox.Text = SAP2000Class.FormInfo.TimerInfo.StartTime
         End If
+        DateBox.Text = Date.Now.ToString("yyyy-MM-dd")
+        RunClock = Stopwatch.StartNew()
+        IterAtStart = If(FromBackUp, OptClass.iter, 0)
         If FromBackUp Then Exit Sub
 
         OptClass.Memory = New List(Of OptimizationStructure_.Member_)
@@ -299,8 +322,24 @@ Public Class MainForm
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.HarmornySearch Then OptClass.Init_HarmonySearch()
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO Then OptClass.Init_BioGeographyBased()
     End Sub
+    Private Shared Function FormatSpan(ByVal t As TimeSpan) As String
+        Return If(t.Days > 0, t.Days & "d ", "") & t.Hours.ToString("00") & ":" & t.Minutes.ToString("00") & ":" & t.Seconds.ToString("00")
+    End Function
+
     Private Sub Write_form()
-        TextBox1.Text = OptClass.iter
+        Dim MaxIter As Double = Math.Max(FormInfo.OptInfo.MaxFuncEvaluation, 1)
+        TextBox1.Text = OptClass.iter & " / " & FormInfo.OptInfo.MaxFuncEvaluation
+        ProgressBar1.Value = CInt(Math.Min(Math.Max(100.0 * OptClass.iter / MaxIter, 0), 100))
+        If Not Double.IsInfinity(OptClass.GlobalBest.PenalizedCost) Then BestCostBox.Text = OptClass.GlobalBest.CostValue.ToString("F2")
+        If RunClock IsNot Nothing Then
+            ElapsedBox.Text = FormatSpan(RunClock.Elapsed)
+            Dim Done As Integer = OptClass.iter - IterAtStart
+            If Done > 0 Then
+                Dim PerAnalysis As Double = RunClock.Elapsed.TotalSeconds / Done
+                AverageTimeBox.Text = PerAnalysis.ToString("F1")
+                RemainingBox.Text = FormatSpan(TimeSpan.FromSeconds(PerAnalysis * Math.Max(MaxIter - OptClass.iter, 0)))
+            End If
+        End If
         If OptClass.GlobalBest.PenalizedCost <> Double.PositiveInfinity AndAlso OptClass.GlobalBestPrint IsNot Nothing Then
             ListBox1.Items.Clear()
             For Each it In OptClass.GlobalBestPrint
@@ -330,6 +369,8 @@ Public Class MainForm
         Dim Penalty As Double = -1
         SAP2000Class.Penalty(Penalty, Sect_ID, ret, applyRepair:=False)
         If ret <> 0 Then : LogError("Error occurend in Penalty") : Exit Sub : End If
+        ret = SAP2000Class.VerifyCompositeWithETABS()      'ETABS composite column design -> ETABS_print (check.xml)
+        If ret <> 0 Then : LogError("Error occurend in VerifyCompositeWithETABS") : Exit Sub : End If
         SAP2000Class.CostStProfile(Sect_ID)
         Dim serializer As New XmlSerializer(GetType(ETABS_Print))
         Using writer As New StreamWriter(Path.ChangeExtension(OutputLoc.Text, ".check.xml"))

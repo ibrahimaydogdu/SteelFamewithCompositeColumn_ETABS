@@ -17,6 +17,7 @@ Public Class OptimizationClass
     Public ILoop As Integer
     Public Update As Boolean
     Public SAP2000Class As ETABS_Class
+    Public ETABSCompositeCheck As List(Of String)      'ETABS composite column design of the final design
 
     Public Sub Init_HarmonySearch()
         ReDim FormInfo.OptInfo.HarmonySearch.ParVec(Memory.Count - 1)
@@ -103,11 +104,23 @@ Public Class OptimizationClass
         Eval(Member, Imem, ret)
         If ret <> 0 Then : LogError("Problem occured in :Eval") : Exit Sub : End If
     End Sub
+    'Best known design: the global best once a feasible design exists, otherwise the best member of the memory
+    '(GlobalBest holds only feasible designs; before that its variables are all 0)
+    Private Function Leader() As OptimizationStructure_.Member_
+        If GlobalBest.DesignVariables IsNot Nothing AndAlso Not Double.IsInfinity(GlobalBest.PenalizedCost) Then Return GlobalBest
+        Dim Best As OptimizationStructure_.Member_ = Memory(0)
+        For Each M In Memory
+            If M.PenalizedCost < Best.PenalizedCost Then Best = M
+        Next
+        Return Best
+    End Function
+
     Private Sub Main_Whale(ByRef Imem As Integer, ByRef ret As Integer)
         Dim a1 As Double = 2.0 - CDbl(iter) * ((2.0) / CDbl(FormInfo.OptInfo.MaxFuncEvaluation)) ' % a is a parameter that drops linearly from  2 to 0
         Dim a2 As Double = -1.0 + CDbl(iter) * ((-1.0) / CDbl(FormInfo.OptInfo.MaxFuncEvaluation)) 'a2 is a parameter that drops linearly from  -1 to -2
         Dim Member As New OptimizationStructure_.Member_
         ReDim Member.DesignVariables(Ub.Count - 1)
+        Dim Lead() As Integer = Leader().DesignVariables
         For idv = 0 To Ub.Count - 1
             'Compute parameters C and A
             Dim A As Double = 2.0 * a1 * CDbl(Rnd()) - a1
@@ -121,12 +134,12 @@ Public Class OptimizationClass
                     Dim D_X_rand As Double = Math.Abs(C * X_rand.DesignVariables(idv) - Memory(Imem).DesignVariables(idv))
                     Member.DesignVariables(idv) = Math.Floor(X_rand.DesignVariables(idv) - A * D_X_rand)
                 Else
-                    Dim D_Leader As Double = Math.Abs(C * Memory(0).DesignVariables(idv) - Memory(Imem).DesignVariables(idv))
-                    Member.DesignVariables(idv) = Math.Floor(Memory(0).DesignVariables(idv) - A * D_Leader)
+                    Dim D_Leader As Double = Math.Abs(C * Lead(idv) - Memory(Imem).DesignVariables(idv))
+                    Member.DesignVariables(idv) = Math.Floor(Lead(idv) - A * D_Leader)
                 End If
             Else
-                Dim Distance2Leader As Double = Math.Abs(Memory(0).DesignVariables(idv) - Memory(Imem).DesignVariables(idv))
-                Member.DesignVariables(idv) = Math.Floor(Distance2Leader * Math.Exp(b * l1) * Math.Cos(l1 * 2 * Math.PI) + Memory(0).DesignVariables(idv))
+                Dim Distance2Leader As Double = Math.Abs(Lead(idv) - Memory(Imem).DesignVariables(idv))
+                Member.DesignVariables(idv) = Math.Floor(Distance2Leader * Math.Exp(b * l1) * Math.Cos(l1 * 2 * Math.PI) + Lead(idv))
             End If
         Next idv
         Eval(Member, Imem, ret)
@@ -171,8 +184,9 @@ Public Class OptimizationClass
         UBLBCheck(Member)
 
         'Landing stage
+        Dim Elite() As Integer = Leader().DesignVariables
         For idv = 0 To Ub.Count - 1
-            Member.DesignVariables(idv) = Math.Floor(GlobalBest.DesignVariables(idv) + Steplength(1.5) * alpha * (GlobalBest.DesignVariables(idv) - Member.DesignVariables(idv) * (2 * iter / FormInfo.OptInfo.MaxFuncEvaluation))) ' eq.(15) In this paper
+            Member.DesignVariables(idv) = Math.Floor(Elite(idv) + Steplength(1.5) * alpha * (Elite(idv) - Member.DesignVariables(idv) * (2 * iter / FormInfo.OptInfo.MaxFuncEvaluation))) ' eq.(15) In this paper
         Next idv
         UBLBCheck(Member)
 
@@ -230,7 +244,8 @@ Public Class OptimizationClass
         Dim STEPLevy As Double = URN / (Math.Abs(RZD)) ^ (1 + Beta)
         'In the Next equation, the difference factor (s-best) means that 
         'when the solution Is the best solution, it remains unchanged.     
-        Dim STSZ As Double = 0.01 * STEPLevy * (Member.DesignVariables(idv) - GlobalBest.DesignVariables(idv))
+        Dim Best() As Integer = Leader().DesignVariables
+        Dim STSZ As Double = 0.01 * STEPLevy * (Member.DesignVariables(idv) - Best(idv))
         Dim RKD As Double = -3 + 6 * Rnd()
         'Here the factor 0.01 comes from the fact that L/100 should the typical
         'step Size of walks/flights where L Is the typical lenghtscale; 
@@ -240,7 +255,7 @@ Public Class OptimizationClass
         Dim int1 As Integer = 0
         Dim RVD As Double = Rnd()
         If (RVD <= 0.4) Then int1 = Math.Floor(-2 + 4 * RVD)
-        id = GlobalBest.DesignVariables(idv) + Math.Floor(STSZ * RKD) + int1
+        id = Best(idv) + Math.Floor(STSZ * RKD) + int1
         Return id
     End Function
 
@@ -310,7 +325,7 @@ Public Class OptimizationClass
         Return (Costs.Max() - Costs.Average()) / (Costs.Max() - Costs.Min())
     End Function
     Public Sub LogError(ByVal msg As String)
-        If SAP2000Class IsNot Nothing Then LogError(msg)
+        If SAP2000Class IsNot Nothing Then SAP2000Class.Errorlogprint(msg)
     End Sub
     Private Sub UBLBCheck(ByRef Member As OptimizationStructure_.Member_)
         For i = 0 To Ub.Count - 1
@@ -347,8 +362,8 @@ Public Class OptimizationClass
         If FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.NoGreedyRandom Or FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.GreedyRandom Then
             ID = Math.Floor(Rnd() * Memory.Count)
         ElseIf FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.NoGreedyWorst Or FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.GreedyWorst Then
-            Dim Costs As IEnumerable(Of Double) = Memory.Select(Function(c) c.PenalizedCost).ToList()
-            ID = Memory.FindIndex(Function(c) c.PenalizedCost = Costs.Max())
+            Dim Worst As Double = Memory.Max(Function(c) c.PenalizedCost)
+            ID = Memory.FindIndex(Function(c) c.PenalizedCost = Worst)
         End If
         If FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.NoGreedyCurrent Or FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.NoGreedyRandom _
             Or FormInfo.OptInfo.MemoryUpdateType = OptimizationStructure_.MemoryUpdateType_.NoGreedyWorst Then Memory(ID) = Member
@@ -364,15 +379,21 @@ Public Class OptimizationClass
     Public Sub Opt_Finalize()
         Dim ret As Integer = 0
         If GlobalBest.PenalizedCost = Double.PositiveInfinity Then
-            MsgBox("Optimum design did not found!!")
+            LogError("Warning: no feasible design found")
+            If SAP2000Class Is Nothing OrElse Not SAP2000Class.Quiet Then MsgBox("No feasible design was found.")
         ElseIf FormInfo.OptInfo.TestWithMath = True Then
             Math_Evaluate(GlobalBest)
         Else
-            'Re-analyse the best design as it is (no repair), save as <file>_best.EDB
-            SAP2000Class.Evaluate(GlobalBest, iter, ret, applyRepair:=False)
+            'Re-analyse the best design as it is (no repair) with all analysis cases, save as <file>_best.EDB
+            ret = SAP2000Class.RestoreRunCases()
+            If ret = 0 Then SAP2000Class.Evaluate(GlobalBest, iter, ret, applyRepair:=False)
             If ret <> 0 Then
                 LogError("Problem occured in :Evaluate")
             Else
+                'composite columns of the best design: ETABS composite column design (ETABS 20+)
+                ret = SAP2000Class.VerifyCompositeWithETABS()
+                If ret <> 0 Then LogError("Problem occured in :VerifyCompositeWithETABS")
+                ETABSCompositeCheck = SAP2000Class.ETABS_print.ETABSCompositeCheck
                 Dim f As String = FormInfo.FileList.ETABSFile
                 ret = SAP2000Class.SapModel.File.Save(Path.Combine(Path.GetDirectoryName(f), Path.GetFileNameWithoutExtension(f) & "_best.EDB"))
                 If (ret <> 0) Then LogError("Problem occured in :File.Save")
@@ -407,7 +428,8 @@ Public Class OptimizationClass
             .Histories = Histories,
             .BestValue = BestValue,
             .GlobalBestPrint = GlobalBestPrint,
-            .Seed = FormInfo.Seed
+            .Seed = FormInfo.Seed,
+            .ETABSCompositeCheck = ETABSCompositeCheck
         }
         Dim serializer As New XmlSerializer(GetType(ClassFinal))
         Using writer As New StreamWriter(FileList.OutputFile)
@@ -421,6 +443,8 @@ Public Class ClassFinal
     Public BestValue As Double
     Public Histories As List(Of OptimizationStructure_.History_)
     Public GlobalBestPrint As List(Of String)
+    'per composite group: "Group: ETABS PMM .., shear .. | internal .." (ETABS 20+)
+    Public ETABSCompositeCheck As List(Of String)
 End Class
 Public Class Class_Backup
     Public Memory As List(Of OptimizationStructure_.Member_)

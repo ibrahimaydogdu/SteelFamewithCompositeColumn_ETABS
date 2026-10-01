@@ -834,6 +834,8 @@ Public Class EncasedSettings_
     Public ConcreteCover As Double = 75             'from steel flange tip / flange face to concrete face [mm]
     Public RebarCover As Double = 50                'from concrete face to bar center [mm]
     Public RebarDiameter As Double = 20             '[mm]
+    Public TieDiameter As Double = 10               '[mm] ties of the ETABS encased section (clear cover = RebarCover - tie - bar/2)
+    Public TieSpacing As Double = 150               '[mm]
     Public MinBarsPerFace As Integer = 2            '2 = corner bars only
     Public MaxBarsPerFace As Integer = 6
     Public DimensionRounding As Double = 50         '[mm]

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Encased composite column settings (AISC 360-16, see KULLANIM_KILAVUZU.md).
+  Encased composite column settings (AISC 360-16 / 360-22, see KULLANIM_KILAVUZU.md).
   Every W section of the library produces one encased section:
     H = W depth  + 2 * ConcreteCover  (rounded up to DimensionRounding, >= MinDimension)
     B = W flange + 2 * ConcreteCover  (rounded up to DimensionRounding, >= MinDimension)
@@ -13,6 +13,9 @@
   <ConcreteCover>75</ConcreteCover>
   <RebarCover>50</RebarCover>
   <RebarDiameter>20</RebarDiameter>
+  <!-- ties of the ETABS encased section (ETABS 20+); bar centre = RebarCover from the concrete face -->
+  <TieDiameter>10</TieDiameter>
+  <TieSpacing>150</TieSpacing>
   <MinBarsPerFace>2</MinBarsPerFace>
   <MaxBarsPerFace>6</MaxBarsPerFace>
   <DimensionRounding>50</DimensionRounding>

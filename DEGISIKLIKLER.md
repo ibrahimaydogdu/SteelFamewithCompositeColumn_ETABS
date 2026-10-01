@@ -5,6 +5,139 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-01 — Aşama 6: ETABS kompozit kolon tasarımıyla doğrulama
+
+**Soru:** iç kompozit çözücü, ETABS'te kompozit kolon API'si olmadığı için yazılmıştı. ETABS 22'de böyle bir API var mı?
+
+**Bulgular (ETABS 22.6):**
+- `cDesignCompositeColumn` var: `SetCode` (`AISC 360-16` ve `AISC 360-22` kabul ediliyor), `StartDesign`, `GetSummaryResults`, tercih ve üzerine yazma (overwrite) tabloları.
+- ETABS gömülü kesit tipini tanıyor (`eFramePropType.EncasedRectangle`), ama `PropFrame` sınıfında bu kesiti **oluşturan metot yok**. `SetRebarColumn` gömülü kesitte başarısız oluyor.
+  - Kesit ve donatı `DatabaseTables` ile yazılabiliyor: `Conc Encasement Rectangle` ve `Concrete Column Reinforcing` tabloları. Doğrulandı.
+- `GetSummaryResults` kaymış veri döndürüyor: çerçeve adı yerine kesit adı, PMM = 0. Gerçek sonuçlar `Composite Column Summary - AISC 360-22` tablosunda.
+- **Süre:**
+  - ETABS kompozit tasarımı 40 kolon için 36–37 s, tüm kolonlar için yaklaşık 190 s. İç çözücü 0,1 s.
+  - Modelde 289 gömülü kesit tanımlıyken analiz 128 s sürdü (General section ile 10–12 s). 289 kesitin tablo içe aktarması yaklaşık 2 dakika.
+- **Aynı kesit ve aynı kuvvetlerle karşılaştırma** (W360X110, 550×450, 8Ø20, AISC 360-22, 525M modelinde Story5'in 4 kolonu):
+
+| Kolon | ETABS PMM | İç çözücü | Fark |
+|---|---|---|---|
+| C1 | 1,693 | 1,597 | −5,7 % |
+| C3 | 1,304 | 1,285 | −1,5 % |
+| C6 | 1,231 | 1,217 | −1,1 % |
+| C7 | 1,713 | 1,605 | −6,3 % |
+
+**Karar (kullanıcıyla):** karma yaklaşım.
+- **Arama:** hızlı iç çözücü ve General section, önceki gibi.
+- **Final değerlendirmesi ve Check Structure:** `VerifyCompositeWithETABS`.
+  - En iyi tasarımın General kesitleri aynı adla gerçek gömülü kesitlere çevrilir, prosedür 13 yapılır, model yeniden analiz edilir.
+  - Aynı analizde iç çözücü ve ETABS kompozit tasarımı (formdaki *Composite code*) çalışır.
+  - Sonuçlar `ErrorLog.txt` dosyasına (`Info: ETABS composite check …`), sonuç XML'ine (`ETABSCompositeCheck`) ve Check Structure çıktısına (`ETABSCompositeRatios` / `ETABSCompositeCheck`) yazılır.
+  - `_best.EDB` gerçek gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
+- ETABS 19'da bu tablolar yok; doğrulama atlanır ve günlükte belirtilir.
+
+**Diğer değişiklikler:**
+- `Group_.CompositeStrength` / `CompositeDetailing`: iç çözücünün yalnızca dayanım oranı ve detay oranı ayrı tutuluyor (`PMMRatio` ikisinin büyüğü).
+  - İlk karşılaştırmada "internal" değeri detay oranını da içerdiği için yanıltıcıydı; örneğin 0,955 ve 0,963 donatı oranı sınırından geliyordu.
+- `EncasedSections.xml`: `TieDiameter` (10) ve `TieSpacing` (150) eklendi. ETABS donatısı iç çözücüyle aynı yerde: çubuk merkezi yüzeyden `RebarCover` uzaklıkta.
+- Tablo yazma, mevcut kayıtları koruyacak şekilde yapıldı (`SetTable`).
+  - İçe aktarma tüm tabloyu değiştiriyor; yalnızca yeni satır yazınca diğer 269 kesit silinmişti.
+  - Kilitli modelde tablo düzenlemesi hatasız ama etkisiz kalıyor; önce kilit açılıyor.
+
+**Test** (uçtan uca, 525M, final yolu zorlanarak):
+- Arama: değerlendirme başına 24 s, değişmedi.
+- Doğrulama: 9 kesit 1,3 s'de dönüştürüldü, prosedür 13, ETABS tasarımı 193 s.
+- 10 grubun hepsinde **ETABS PMM, iç çözücünün dayanım oranından %7–28 yüksek**:
+
+| Grup | ETABS PMM | İç çözücü (dayanım) |
+|---|---|---|
+| 5 | 0,627 | 0,491 |
+| 6 | 0,819 | 0,762 |
+| 7 | 0,670 | 0,581 |
+| 8 | 0,853 | 0,746 |
+| 9 | 0,575 | 0,513 |
+| 10 | 0,910 | 0,820 |
+| 11 | 0,233 | 0,204 |
+| 12 | 0,454 | 0,422 |
+| 13 | 0,246 | 0,203 |
+| 14 | 0,358 | 0,329 |
+
+- Bu tasarımlar büyük kesitli ve oranları düşük. Fark, oranı yüksek tek kesitli denemedekinden (%1–6) büyük.
+- **Açık iş:** farkın kaynağı araştırılmalı (B1, Pn, Mn bileşenleri; ETABS tablosu `PRatio`, `MMajRatio`, `MMinRatio` veriyor).
+  - Fark kapanana kadar iç çözücüyle "uygun" bulunan bir tasarım ETABS kontrolünde 1'i aşabilir.
+  - Final kontrolünde bu durum günlükte görünür.
+
+---
+
+## 2026-10-01 — Aşama 5: Kod taraması, hızlandırma, algoritma düzeltmeleri, GUI
+
+### Kritik hata
+- `OptimizationClass.LogError` kendini sonsuz döngüde çağırıyordu ve programı `StackOverflowException` ile çökertiyordu.
+  - `Opt_Finalize` başarı mesajını bu metotla yazdığı için **her başarılı koşunun sonunda** program çöküyordu. ETABS açık kalıyor, geçici klasör silinmiyordu. Hata durumlarında da aynısı oluyordu.
+  - Düzeltme: mesaj `SAP2000Class.Errorlogprint` ile yazılıyor.
+
+### Hızlandırma
+Süre ölçümü ilk kez eklendi: `Clock`, `TimingReport` ve günlükte `Info: timing …` satırı. 525M modelinde mevcut durum (2 değerlendirme): değerlendirme başına **91 s**.
+
+| İşlem | Ortalama | Değerlendirme başına |
+|---|---|---|
+| Analiz | 13,1 s | 6 |
+| Çelik tasarımı | 8,2 s | 2–3 |
+| `File.Save` | 1,8 s | 6 |
+| Kesit atama | 1,7 s | 6 |
+| Sonuç okuma, kompozit kontrol | < 0,2 s | — |
+
+Sonucu değiştirmeyen hızlandırmalar (sıralı modda sonuçlar birebir aynı; değerlendirme başına **68 s**):
+- `E3`'teki `File.Save` kaldırıldı. Model `WorkFile` üzerinden açıldığı için `RunAnalysis` dosya yolunu biliyor.
+- Analiz ETABS süreci içinde çalıştırılıyor (`SetSolverOption_3`, process 1): yaklaşık %10 kazanç. Çözücü tipinin belirgin etkisi olmadı.
+- `E2` yalnızca kesiti değişen grupları yeniden atıyor (`Assigned()`).
+- **Sonuç önbelleği** (`UseCache`): aynı tasarım vektörü tekrar üretilirse ETABS çağrılmıyor.
+  - Anahtar, düzeltme öncesi vektör. Final değerlendirmesi ve Check Structure önbellek kullanmaz.
+  - Ana döngü, art arda 20 çevrimde yeni analiz yapılmazsa sonlanıyor; önbellekle döngünün sonsuza kadar dönmesi önleniyor.
+- **Kullanılmayan yük durumlarının çözülmemesi** (`SkipUnusedCases`): kurallar PROGRAM_KURALLARI.md'de.
+  - 525M modelinde kapatılacak durum yok: Modal, 3 nonlineer P-Delta kombinasyon durumu ve `~LLRF`.
+  - `Opt_Finalize`, `_best.EDB` için tüm durumları geri açıyor.
+
+Davranışı değiştiren hızlandırma:
+- **Birleşik düzeltme modu** (`RepairMode = Combined`, formda varsayılan):
+  - Öteleme (F2, F4) ve PMM (G2) düzeltme adımları tek analizin sonuçlarından birlikte hesaplanıyor; her değişken için en büyük adım alınıyor. Ardından tek bir yeniden analiz yapılıyor.
+  - Değerlendirme başına en fazla 2 analiz ve 2 tasarım: **26 s**, başlangıca göre yaklaşık 3,5 kat hızlı.
+  - Eski sıralı akış *Sequential (original)* olarak seçilebilir; eski yedeklerde varsayılan budur.
+
+### Algoritma düzeltmeleri
+- **Dandelion (iniş aşaması) ve Levy uçuşu (BBO)** `GlobalBest`'e yöneliyordu. `GlobalBest` yalnızca cezasız çözümle güncellendiği için uygun çözüm bulunana kadar değişkenleri 0'dı ve arama en küçük kesitlere itiliyordu.
+  - Artık `Leader()` kullanılıyor: uygun çözüm varsa `GlobalBest`, yoksa belleğin en iyisi.
+- **Whale:** lider `Memory(0)` yerine `Leader()`. Bellek yalnızca çevrim başında sıralandığı için `Memory(0)` güncel en iyi değildi.
+- **`MemoryUpdate` (Worst):** en kötü maliyet her eleman için yeniden hesaplanıyordu; artık bir kez hesaplanıyor (sonuç aynı).
+- "No feasible design" durumu günlüğe yazılıyor.
+- `ETABS_Class.Quiet`: mesaj kutusu olmadan kapanış (toplu koşular, testler).
+
+### GUI
+- Pencere başlığı eklendi. "SAP2000 File" başlığı → "ETABS Model (*.EDB)". Bozuk karakterli eski varsayılan dosya yolları kaldırıldı.
+- Ana sayfaya *Analyses* (yapılan / en fazla), *Best cost*, *Elapsed*, *Remaining* (tahmini) alanları ve ilerleme çubuğu eklendi. *Date* ve *Av. analysis (s)* alanları artık dolduruluyor (önceden hiç yazılmıyordu).
+- *Structural Properties*: "Skip analysis cases not used by design / drift checks" seçeneği eklendi. "Random seed" etiketinin kutunun altında kalması ve hizalama sorunları düzeltildi.
+- *Optimization*: yeni **Evaluation** grubu eklendi (*Repair mode*, *Reuse results of repeated designs*).
+  - Yanlış etiketler düzeltildi: ikinci "Memory Update" → "Method", "Number of Members" → "Memory size", "Max. Iteration" → "Max. analyses".
+- Pencerenin sağındaki boş alan kaldırıldı.
+- Form her sekmenin ekran görüntüsüyle kontrol edildi.
+
+### Testler (ETABS 22.6, 525M, kompozit 360-22, aynı tohum)
+| Koşu | Değerlendirme 1 (maliyet / ceza) | Değerlendirme 2 | Süre / değerlendirme |
+|---|---|---|---|
+| Başlangıç (Aşama 4 kodu) | 7906,97 / 1,3548 | 7050,18 / 6,3586 | 91 s |
+| Sıralı + hızlandırmalar | 7906,97 / 1,3548 | 7050,18 / 6,3586 | 68 s |
+| Birleşik + hızlandırmalar | 6978,92 / 1,3713 | 9628,67 / 0,7427 | 26 s |
+
+- Önbellek: tekrarlanan değerlendirme 0 s sürdü ve aynı sonucu verdi.
+- **Uçtan uca optimizasyon** (test programı formdaki `Init` ve döngüyü izliyor; HS, bellek 4, birleşik mod):
+  - 40 analizlik koşu 4 çevrim boyunca hatasız tamamlandı. Analiz başına ortalama 9,8 s, değerlendirme başına 24,6 s.
+  - Bu bütçede uygun (cezasız) tasarım bulunamadı. "No feasible design" günlüğe yazıldı, program çökmeden kapandı.
+  - Final yolunu denemek için ikinci bir kısa koşuda belleğin en iyisi zorla en iyi çözüm yapıldı (yalnızca testte).
+    - Final analizi, `_best.EDB`, sonuç XML'i ve "completed successfully" satırı sorunsuz.
+    - Çalışma klasörü silindi, arkada ETABS kalmadı.
+  - Form, ekran görüntüleriyle kontrol edildi. Formdan başlatılan gerçek koşu elle denenmedi.
+
+---
+
 ## 2026-10-01 — Aşama 4: Geçici çalışma klasörü
 
 - Program artık seçilen modeli değiştirmiyor. Önceden `E3_Analysis` her analizde girdi dosyasının üzerine kaydediyordu.

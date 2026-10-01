@@ -59,6 +59,18 @@ Partial Class MainForm
         Me.SeedBox = New System.Windows.Forms.TextBox()
         Me.Label26 = New System.Windows.Forms.Label()
         Me.CompositeCodeBox = New System.Windows.Forms.ComboBox()
+        Me.SkipCases = New System.Windows.Forms.CheckBox()
+        Me.GroupBox9 = New System.Windows.Forms.GroupBox()
+        Me.Label28 = New System.Windows.Forms.Label()
+        Me.RepairModeBox = New System.Windows.Forms.ComboBox()
+        Me.ResultCache = New System.Windows.Forms.CheckBox()
+        Me.Label29 = New System.Windows.Forms.Label()
+        Me.BestCostBox = New System.Windows.Forms.TextBox()
+        Me.Label30 = New System.Windows.Forms.Label()
+        Me.ElapsedBox = New System.Windows.Forms.TextBox()
+        Me.Label31 = New System.Windows.Forms.Label()
+        Me.RemainingBox = New System.Windows.Forms.TextBox()
+        Me.ProgressBar1 = New System.Windows.Forms.ProgressBar()
         Me.Label20 = New System.Windows.Forms.Label()
         Me.Dcode_Steel = New System.Windows.Forms.ComboBox()
         Me.NofJoint = New System.Windows.Forms.TextBox()
@@ -129,7 +141,7 @@ Partial Class MainForm
         Me.GroupBox1.Size = New System.Drawing.Size(600, 49)
         Me.GroupBox1.TabIndex = 2
         Me.GroupBox1.TabStop = False
-        Me.GroupBox1.Text = "SAP2000 File"
+        Me.GroupBox1.Text = "ETABS Model (*.EDB)"
         '
         'loadSAP2000file
         '
@@ -148,8 +160,6 @@ Partial Class MainForm
         Me.saplocation.Name = "saplocation"
         Me.saplocation.Size = New System.Drawing.Size(465, 22)
         Me.saplocation.TabIndex = 0
-        Me.saplocation.Text = "E:\OneDrive - Akdeniz Üniversitesi\myprojects\Algoritmalar\MVS2010\Kompozit\ETABS" &
-    "\KomopozitDoseme\ETABS\525M\25Members.EDB"
         '
         'GroupBox3
         '
@@ -181,8 +191,6 @@ Partial Class MainForm
         Me.OutputLoc.Name = "OutputLoc"
         Me.OutputLoc.Size = New System.Drawing.Size(465, 22)
         Me.OutputLoc.TabIndex = 0
-        Me.OutputLoc.Text = "D:\OneDrive - Akdeniz Üniversitesi\myprojects\Algoritmalar\MVS2010\Kompozit\ETABS" &
-    "\KomopozitDoseme\ETABS\525M\Output.xml"
         '
         'GroupBox6
         '
@@ -205,7 +213,7 @@ Partial Class MainForm
         Me.GroupBox6.Size = New System.Drawing.Size(600, 153)
         Me.GroupBox6.TabIndex = 26
         Me.GroupBox6.TabStop = False
-        Me.GroupBox6.Text = "Timer"
+        Me.GroupBox6.Text = "Run"
         '
         'CheckStructure
         '
@@ -269,7 +277,7 @@ Partial Class MainForm
         Me.Label12.Name = "Label12"
         Me.Label12.Size = New System.Drawing.Size(84, 16)
         Me.Label12.TabIndex = 6
-        Me.Label12.Text = "Av.It.Time (s)"
+        Me.Label12.Text = "Av. analysis (s)"
         '
         'FinishTimeBox
         '
@@ -348,6 +356,13 @@ Partial Class MainForm
         Me.TabPage1.Controls.Add(Me.ListBox2)
         Me.TabPage1.Controls.Add(Me.ListBox1)
         Me.TabPage1.Controls.Add(Me.label38)
+        Me.TabPage1.Controls.Add(Me.Label29)
+        Me.TabPage1.Controls.Add(Me.BestCostBox)
+        Me.TabPage1.Controls.Add(Me.Label30)
+        Me.TabPage1.Controls.Add(Me.ElapsedBox)
+        Me.TabPage1.Controls.Add(Me.Label31)
+        Me.TabPage1.Controls.Add(Me.RemainingBox)
+        Me.TabPage1.Controls.Add(Me.ProgressBar1)
         Me.TabPage1.Controls.Add(Me.TextBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox6)
@@ -384,19 +399,20 @@ Partial Class MainForm
         'label38
         '
         Me.label38.AutoSize = True
-        Me.label38.Location = New System.Drawing.Point(511, 342)
+        Me.label38.Location = New System.Drawing.Point(450, 315)
         Me.label38.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.label38.Name = "label38"
-        Me.label38.Size = New System.Drawing.Size(25, 16)
+        Me.label38.Size = New System.Drawing.Size(60, 16)
         Me.label38.TabIndex = 29
-        Me.label38.Text = "Iter"
+        Me.label38.Text = "Analyses"
         '
         'TextBox1
         '
-        Me.TextBox1.Location = New System.Drawing.Point(548, 338)
+        Me.TextBox1.Location = New System.Drawing.Point(540, 311)
         Me.TextBox1.Margin = New System.Windows.Forms.Padding(4)
         Me.TextBox1.Name = "TextBox1"
-        Me.TextBox1.Size = New System.Drawing.Size(59, 22)
+        Me.TextBox1.Size = New System.Drawing.Size(118, 22)
+        Me.TextBox1.ReadOnly = True
         Me.TextBox1.TabIndex = 27
         '
         'TabPage2
@@ -422,9 +438,10 @@ Partial Class MainForm
         Me.GroupBox8.Controls.Add(Me.SeedBox)
         Me.GroupBox8.Controls.Add(Me.Label26)
         Me.GroupBox8.Controls.Add(Me.CompositeCodeBox)
+        Me.GroupBox8.Controls.Add(Me.SkipCases)
         Me.GroupBox8.Location = New System.Drawing.Point(275, 0)
         Me.GroupBox8.Name = "GroupBox8"
-        Me.GroupBox8.Size = New System.Drawing.Size(400, 190)
+        Me.GroupBox8.Size = New System.Drawing.Size(400, 220)
         Me.GroupBox8.TabIndex = 26
         Me.GroupBox8.TabStop = False
         Me.GroupBox8.Text = "Analysis / Composite Options"
@@ -465,9 +482,9 @@ Partial Class MainForm
         Me.DriftCombos.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
         Me.DriftCombos.FormattingEnabled = True
         Me.DriftCombos.Items.AddRange(New Object() {"All cases and combos", "Lateral (wind / earthquake) only"})
-        Me.DriftCombos.Location = New System.Drawing.Point(150, 82)
+        Me.DriftCombos.Location = New System.Drawing.Point(180, 82)
         Me.DriftCombos.Name = "DriftCombos"
-        Me.DriftCombos.Size = New System.Drawing.Size(240, 24)
+        Me.DriftCombos.Size = New System.Drawing.Size(210, 24)
         Me.DriftCombos.TabIndex = 3
         '
         'Label25
@@ -475,13 +492,13 @@ Partial Class MainForm
         Me.Label25.AutoSize = True
         Me.Label25.Location = New System.Drawing.Point(8, 122)
         Me.Label25.Name = "Label25"
-        Me.Label25.Size = New System.Drawing.Size(140, 16)
+        Me.Label25.Size = New System.Drawing.Size(165, 16)
         Me.Label25.TabIndex = 4
-        Me.Label25.Text = "Random seed (0=time)"
+        Me.Label25.Text = "Random seed (0 = time)"
         '
         'SeedBox
         '
-        Me.SeedBox.Location = New System.Drawing.Point(150, 118)
+        Me.SeedBox.Location = New System.Drawing.Point(180, 118)
         Me.SeedBox.Name = "SeedBox"
         Me.SeedBox.Size = New System.Drawing.Size(100, 22)
         Me.SeedBox.TabIndex = 5
@@ -502,7 +519,7 @@ Partial Class MainForm
         Me.CompositeCodeBox.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
         Me.CompositeCodeBox.FormattingEnabled = True
         Me.CompositeCodeBox.Items.AddRange(New Object() {"AISC 360-16", "AISC 360-22"})
-        Me.CompositeCodeBox.Location = New System.Drawing.Point(150, 152)
+        Me.CompositeCodeBox.Location = New System.Drawing.Point(180, 152)
         Me.CompositeCodeBox.Name = "CompositeCodeBox"
         Me.CompositeCodeBox.Size = New System.Drawing.Size(140, 24)
         Me.CompositeCodeBox.TabIndex = 7
@@ -551,10 +568,10 @@ Partial Class MainForm
         '
         Me.Dcode_Steel.FormattingEnabled = True
         Me.Dcode_Steel.Items.AddRange(New Object() {"AISC 360-22", "AISC 360-16", "AISC 360-10", "AISC 360-05", "AISC LRFD 93", "AISC ASD 89", "AS 4100-1998", "BS 5950-2000", "Chinese 2010", "Chinese 2018", "CSA S16-14", "CSA S16-09", "Eurocode 3-2005", "IS 800:2007", "Italian NTC 2018", "Italian NTC 2008", "KBC 2009", "NZS 3404:1997", "SP 16.13330.2017"})
-        Me.Dcode_Steel.Location = New System.Drawing.Point(140, 197)
+        Me.Dcode_Steel.Location = New System.Drawing.Point(130, 197)
         Me.Dcode_Steel.Margin = New System.Windows.Forms.Padding(4)
         Me.Dcode_Steel.Name = "Dcode_Steel"
-        Me.Dcode_Steel.Size = New System.Drawing.Size(120, 24)
+        Me.Dcode_Steel.Size = New System.Drawing.Size(130, 24)
         Me.Dcode_Steel.TabIndex = 47
         Me.Dcode_Steel.Text = "AISC 360-22"
         '
@@ -598,7 +615,7 @@ Partial Class MainForm
         Me.dwarn.Name = "dwarn"
         Me.dwarn.Size = New System.Drawing.Size(129, 20)
         Me.dwarn.TabIndex = 12
-        Me.dwarn.Text = "Discardwarnings"
+        Me.dwarn.Text = "Discard warnings"
         Me.dwarn.UseVisualStyleBackColor = True
         '
         'CtoC
@@ -742,6 +759,7 @@ Partial Class MainForm
         Me.TabPage3.Controls.Add(Me.GroupBox7)
         Me.TabPage3.Controls.Add(Me.GroupBox2)
         Me.TabPage3.Controls.Add(Me.GroupBox4)
+        Me.TabPage3.Controls.Add(Me.GroupBox9)
         Me.TabPage3.Location = New System.Drawing.Point(4, 25)
         Me.TabPage3.Margin = New System.Windows.Forms.Padding(4)
         Me.TabPage3.Name = "TabPage3"
@@ -963,7 +981,7 @@ Partial Class MainForm
         Me.Label23.Name = "Label23"
         Me.Label23.Size = New System.Drawing.Size(104, 16)
         Me.Label23.TabIndex = 6
-        Me.Label23.Text = "Memory Update"
+        Me.Label23.Text = "Method"
         '
         'Label19
         '
@@ -1004,7 +1022,7 @@ Partial Class MainForm
         Me.Label2.Name = "Label2"
         Me.Label2.Size = New System.Drawing.Size(85, 16)
         Me.Label2.TabIndex = 2
-        Me.Label2.Text = "Max. Iteration"
+        Me.Label2.Text = "Max. analyses"
         '
         'MemSize
         '
@@ -1024,22 +1042,135 @@ Partial Class MainForm
         Me.Label1.Name = "Label1"
         Me.Label1.Size = New System.Drawing.Size(129, 16)
         Me.Label1.TabIndex = 0
-        Me.Label1.Text = "Number of Members"
+        Me.Label1.Text = "Memory size"
         '
         'NotifyIcon1
         '
         Me.NotifyIcon1.Text = "NotifyIcon1"
         Me.NotifyIcon1.Visible = True
         '
+        'Label29
+        '
+        Me.Label29.AutoSize = True
+        Me.Label29.Location = New System.Drawing.Point(450, 345)
+        Me.Label29.Name = "Label29"
+        Me.Label29.Size = New System.Drawing.Size(70, 16)
+        Me.Label29.TabIndex = 31
+        Me.Label29.Text = "Best cost"
+        '
+        'BestCostBox
+        '
+        Me.BestCostBox.Location = New System.Drawing.Point(540, 341)
+        Me.BestCostBox.Name = "BestCostBox"
+        Me.BestCostBox.ReadOnly = True
+        Me.BestCostBox.Size = New System.Drawing.Size(118, 22)
+        Me.BestCostBox.TabIndex = 32
+        '
+        'Label30
+        '
+        Me.Label30.AutoSize = True
+        Me.Label30.Location = New System.Drawing.Point(450, 375)
+        Me.Label30.Name = "Label30"
+        Me.Label30.Size = New System.Drawing.Size(60, 16)
+        Me.Label30.TabIndex = 33
+        Me.Label30.Text = "Elapsed"
+        '
+        'ElapsedBox
+        '
+        Me.ElapsedBox.Location = New System.Drawing.Point(540, 371)
+        Me.ElapsedBox.Name = "ElapsedBox"
+        Me.ElapsedBox.ReadOnly = True
+        Me.ElapsedBox.Size = New System.Drawing.Size(118, 22)
+        Me.ElapsedBox.TabIndex = 34
+        '
+        'Label31
+        '
+        Me.Label31.AutoSize = True
+        Me.Label31.Location = New System.Drawing.Point(450, 405)
+        Me.Label31.Name = "Label31"
+        Me.Label31.Size = New System.Drawing.Size(70, 16)
+        Me.Label31.TabIndex = 35
+        Me.Label31.Text = "Remaining"
+        '
+        'RemainingBox
+        '
+        Me.RemainingBox.Location = New System.Drawing.Point(540, 401)
+        Me.RemainingBox.Name = "RemainingBox"
+        Me.RemainingBox.ReadOnly = True
+        Me.RemainingBox.Size = New System.Drawing.Size(118, 22)
+        Me.RemainingBox.TabIndex = 36
+        '
+        'ProgressBar1
+        '
+        Me.ProgressBar1.Location = New System.Drawing.Point(17, 547)
+        Me.ProgressBar1.Name = "ProgressBar1"
+        Me.ProgressBar1.Size = New System.Drawing.Size(641, 18)
+        Me.ProgressBar1.TabIndex = 37
+        '
+        'SkipCases
+        '
+        Me.SkipCases.AutoSize = True
+        Me.SkipCases.Checked = True
+        Me.SkipCases.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.SkipCases.Location = New System.Drawing.Point(8, 188)
+        Me.SkipCases.Name = "SkipCases"
+        Me.SkipCases.Size = New System.Drawing.Size(385, 20)
+        Me.SkipCases.TabIndex = 8
+        Me.SkipCases.Text = "Skip analysis cases not used by design / drift checks"
+        Me.SkipCases.UseVisualStyleBackColor = True
+        '
+        'GroupBox9
+        '
+        Me.GroupBox9.Controls.Add(Me.Label28)
+        Me.GroupBox9.Controls.Add(Me.RepairModeBox)
+        Me.GroupBox9.Controls.Add(Me.ResultCache)
+        Me.GroupBox9.Location = New System.Drawing.Point(383, 4)
+        Me.GroupBox9.Name = "GroupBox9"
+        Me.GroupBox9.Size = New System.Drawing.Size(290, 100)
+        Me.GroupBox9.TabIndex = 10
+        Me.GroupBox9.TabStop = False
+        Me.GroupBox9.Text = "Evaluation"
+        '
+        'Label28
+        '
+        Me.Label28.AutoSize = True
+        Me.Label28.Location = New System.Drawing.Point(8, 30)
+        Me.Label28.Name = "Label28"
+        Me.Label28.Size = New System.Drawing.Size(85, 16)
+        Me.Label28.TabIndex = 0
+        Me.Label28.Text = "Repair mode"
+        '
+        'RepairModeBox
+        '
+        Me.RepairModeBox.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.RepairModeBox.FormattingEnabled = True
+        Me.RepairModeBox.Items.AddRange(New Object() {"Sequential (original)", "Combined (faster)"})
+        Me.RepairModeBox.Location = New System.Drawing.Point(100, 26)
+        Me.RepairModeBox.Name = "RepairModeBox"
+        Me.RepairModeBox.Size = New System.Drawing.Size(180, 24)
+        Me.RepairModeBox.TabIndex = 1
+        '
+        'ResultCache
+        '
+        Me.ResultCache.AutoSize = True
+        Me.ResultCache.Checked = True
+        Me.ResultCache.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.ResultCache.Location = New System.Drawing.Point(8, 64)
+        Me.ResultCache.Name = "ResultCache"
+        Me.ResultCache.Size = New System.Drawing.Size(270, 20)
+        Me.ResultCache.TabIndex = 2
+        Me.ResultCache.Text = "Reuse results of repeated designs"
+        Me.ResultCache.UseVisualStyleBackColor = True
+        '
         'MainForm
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(8.0!, 16.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        Me.ClientSize = New System.Drawing.Size(913, 639)
+        Me.ClientSize = New System.Drawing.Size(715, 615)
         Me.Controls.Add(Me.TabControl1)
         Me.Margin = New System.Windows.Forms.Padding(4)
         Me.Name = "MainForm"
-        Me.Text = "Main Form"
+        Me.Text = "Steel Frame Optimization with Composite Columns (ETABS)"
         Me.GroupBox1.ResumeLayout(False)
         Me.GroupBox1.PerformLayout()
         Me.GroupBox3.ResumeLayout(False)
@@ -1146,4 +1277,16 @@ Partial Class MainForm
     Friend WithEvents SeedBox As TextBox
     Friend WithEvents Label26 As Label
     Friend WithEvents CompositeCodeBox As ComboBox
+    Friend WithEvents SkipCases As CheckBox
+    Friend WithEvents GroupBox9 As GroupBox
+    Friend WithEvents Label28 As Label
+    Friend WithEvents RepairModeBox As ComboBox
+    Friend WithEvents ResultCache As CheckBox
+    Friend WithEvents Label29 As Label
+    Friend WithEvents BestCostBox As TextBox
+    Friend WithEvents Label30 As Label
+    Friend WithEvents ElapsedBox As TextBox
+    Friend WithEvents Label31 As Label
+    Friend WithEvents RemainingBox As TextBox
+    Friend WithEvents ProgressBar1 As ProgressBar
 End Class

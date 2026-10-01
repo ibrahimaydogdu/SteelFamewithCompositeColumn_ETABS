@@ -41,6 +41,8 @@ Public Class ETABS_Class
     'Working copy of the model: all saves / analyses run here, the input model is never modified
     Public WorkFile As String
     Private WorkDir As String
+    'True: Close shows no message box (batch runs, tests)
+    Public Quiet As Boolean
 
     'Name -> index lookups (avoid repeated linear searches)
     Private PointIndex As Dictionary(Of String, Integer)
@@ -59,13 +61,39 @@ Public Class ETABS_Class
     Private ReadOnly MemberChecks As New Dictionary(Of String, CompositeMemberCheck)
     Private ReadOnly CreatedSections As New HashSet(Of String)
     Private Const NO_DESIGN As Integer = 7
+    Private Const COMPOSITE_COLUMN_DESIGN As Integer = 13     'FrameObj design procedure (ETABS 20+); 1 locked the hidden ETABS
+    Private Const ANALYSIS_IN_PROCESS As Integer = 1     'SetSolverOption_3 process type: 0 auto, 1 ETABS (GUI) process, 2 separate
     'A design whose analysis (or design) cannot be completed is infeasible, not a fatal error
     Public AnalysisFailed As Boolean
     Private Const FAILED_PENALTY As Double = 10
 
+    'Result cache: design vector before repair -> evaluated member (repaired vector, cost, penalty)
+    Private ReadOnly Cache As New Dictionary(Of String, OptimizationStructure_.Member_)
+    'Section index currently assigned in ETABS per design variable (-1 = unknown): unchanged groups are not re-assigned
+    Private Assigned() As Integer
+
+    'Run statistics: total time and number of calls of each ETABS operation (ErrorLog at Close)
+    Private ReadOnly Timing As New Dictionary(Of String, Stopwatch)
+    Private ReadOnly Calls As New Dictionary(Of String, Integer)
+
     Public Shared Sub SetSeed(ByVal Seed As Integer)
         Rng = New Random(Seed)
     End Sub
+
+    'Stopwatch of an operation, counted once per call: Dim c = Clock("Analysis") : c.Start() ... c.Stop()
+    Private Function Clock(ByVal Name As String) As Stopwatch
+        Dim sw As Stopwatch = Nothing
+        If Not Timing.TryGetValue(Name, sw) Then
+            sw = New Stopwatch : Timing(Name) = sw : Calls(Name) = 0
+        End If
+        Calls(Name) += 1
+        Return sw
+    End Function
+
+    Public Function TimingReport() As String
+        Return String.Join("; ", Timing.Select(Function(kv) kv.Key & " " & kv.Value.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture) & " s / " & Calls(kv.Key) &
+                                                   " = " & (kv.Value.Elapsed.TotalSeconds / Math.Max(Calls(kv.Key), 1)).ToString("F2", CultureInfo.InvariantCulture) & " s"))
+    End Function
 
 
     Public Sub New(ByRef FormInfo_ As MiscellaneousStructures.FormInfo_, ByRef ret As Integer)
@@ -78,8 +106,10 @@ Public Class ETABS_Class
         Dim timeSpan As TimeSpan = Date.Now.Subtract(FormInfo.TimerInfo.startDate)
         Dim avtime As Double = If(Iter > 0, Math.Round(timeSpan.TotalSeconds / Iter, 2), 0)
         FormInfo.TimerInfo.TotalTime = timeSpan.Days & "D:" & timeSpan.Hours & "H:" & timeSpan.Minutes & "M:" & timeSpan.Seconds & "S," & "Ave=" & avtime & "sec"
+        Errorlogprint("Info: timing " & TimingReport())
 
         Shutdown()
+        If Quiet Then Return
 
         If ret = 0 Then
             MsgBox("API script completed successfully.")
@@ -114,6 +144,10 @@ Public Class ETABS_Class
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeGroups") : Return ret : End If
         ret = InitilizeLoadCases()
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeLoadCases") : Return ret : End If
+        If FormInfo.SkipUnusedCases AndAlso Not FormInfo.CheckStructure Then
+            ret = SetRunCases()
+            If (ret <> 0) Then : Errorlogprint("Problem occured on Function: SetRunCases") : Return ret : End If
+        End If
         ret = InitilizeSections()
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeSections") : Return ret : End If
         ret = InitilizeGeometricCons()
@@ -121,6 +155,8 @@ Public Class ETABS_Class
         If FormInfo.CompositeColumns Then
             ret = InitilizeCompositeMaterials()
             If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeCompositeMaterials") : Return ret : End If
+            ret = DetectEncasedSections()
+            If (ret <> 0) Then : Errorlogprint("Problem occured on Function: DetectEncasedSections") : Return ret : End If
         End If
         '_____________________________________________________
         'Steel design code (set once)
@@ -280,6 +316,14 @@ Public Class ETABS_Class
         'set present units to kN-mm (section library is in mm)
         ret = SapModel.SetPresentUnits(ETABSv1.eUnits.kN_mm_C)
         If (ret <> 0) Then : Errorlogprint("Problem occured on :SetPresentUnits") : Return ret : End If
+        Dim SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads As Integer, StiffCase As String = Nothing
+        If SapModel.Analyze.GetSolverOption_3(SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 Then
+            Errorlogprint("Info: solver type " & SolverType & ", process " & ProcessType & ", parallel runs " & ParallelRuns & ", threads " & Threads)
+            'analysis inside the ETABS process (1) instead of a separate process: about 10 % faster per analysis (525M model)
+            If ProcessType <> ANALYSIS_IN_PROCESS AndAlso SapModel.Analyze.SetSolverOption_3(SolverType, ANALYSIS_IN_PROCESS, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 Then
+                Errorlogprint("Info: analysis process set to " & ANALYSIS_IN_PROCESS & " (ETABS process)")
+            End If
+        End If
         'material weight per unit volume
         Dim m As Double
         ret = SapModel.PropMaterial.GetWeightAndMass(STEEL_MATERIAL, A992Fy50Weight, m)
@@ -647,6 +691,89 @@ Public Class ETABS_Class
         Return ret
     End Function
 
+    '_______________________________________________________________________________________________
+    'SkipUnusedCases: cases used by no strength / deflection design combo and no drift check are not run.
+    'Prerequisites (initial and modal cases) of the used cases are kept; modal cases are always kept
+    '(automatic seismic loads may use the modal periods). Unknown case types: nothing is switched off.
+    Private ReadOnly DisabledCases As New List(Of String)
+
+    Private Function SetRunCases() As Integer
+        Dim N As Integer, Names() As String = Nothing, Run() As Boolean = Nothing
+        Dim ret As Integer = SapModel.Analyze.GetRunCaseFlag(N, Names, Run)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.GetRunCaseFlag") : Return ret : End If
+        Dim AllCases As New HashSet(Of String)(Names.Take(N))
+        Dim Needed As New HashSet(Of String)
+        Dim Pending As New Stack(Of String)
+        Dim AddCase = Sub(c As String)
+                          If Not String.IsNullOrEmpty(c) AndAlso AllCases.Contains(c) AndAlso Needed.Add(c) Then Pending.Push(c)
+                      End Sub
+        Dim VisitedCombos As New HashSet(Of String)
+        Dim AddCombo As Action(Of String) = Nothing
+        AddCombo = Sub(Combo As String)
+                       If Not VisitedCombos.Add(Combo) Then Return
+                       Dim NI As Integer, CType_() As ETABSv1.eCNameType = Nothing, CName() As String = Nothing, SF() As Double = Nothing
+                       If SapModel.RespCombo.GetCaseList(Combo, NI, CType_, CName, SF) <> 0 Then Return
+                       For i = 0 To NI - 1
+                           If CType_(i) = ETABSv1.eCNameType.LoadCombo Then AddCombo(CName(i)) Else AddCase(CName(i))
+                       Next
+                   End Sub
+        For Each c In ComboNames.DesignSteelStrength.Concat(ComboNames.DesignSteelDeflection).Concat(DriftComboNames)
+            AddCombo(c)
+        Next
+        For Each c In DriftCaseNames
+            AddCase(c)
+        Next
+        For i = 0 To N - 1
+            Dim CT As ETABSv1.eLoadCaseType, ST As Integer
+            If Names(i).StartsWith("~") Then AddCase(Names(i))      'ETABS internal cases (e.g. ~LLRF live load reduction)
+            If SapModel.LoadCases.GetTypeOAPI(Names(i), CT, ST) = 0 AndAlso CT = ETABSv1.eLoadCaseType.Modal Then AddCase(Names(i))
+        Next
+        While Pending.Count > 0
+            Dim c As String = Pending.Pop()
+            Dim CT As ETABSv1.eLoadCaseType, ST As Integer
+            If SapModel.LoadCases.GetTypeOAPI(c, CT, ST) <> 0 Then CT = CType(-1, ETABSv1.eLoadCaseType)
+            Dim Prev As String = Nothing
+            Select Case CT
+                Case ETABSv1.eLoadCaseType.LinearStatic
+                    If SapModel.LoadCases.StaticLinear.GetInitialCase(c, Prev) = 0 Then AddCase(Prev)
+                Case ETABSv1.eLoadCaseType.NonlinearStatic
+                    If SapModel.LoadCases.StaticNonlinear.GetInitialCase(c, Prev) = 0 Then AddCase(Prev)
+                    Prev = Nothing
+                    If SapModel.LoadCases.StaticNonlinear.GetModalCase(c, Prev) = 0 Then AddCase(Prev)
+                Case ETABSv1.eLoadCaseType.ResponseSpectrum
+                    If SapModel.LoadCases.ResponseSpectrum.GetModalCase(c, Prev) = 0 Then AddCase(Prev)
+                Case ETABSv1.eLoadCaseType.Modal
+                    If SapModel.LoadCases.ModalEigen.GetInitialCase(c, Prev) = 0 Then
+                        AddCase(Prev)
+                    ElseIf SapModel.LoadCases.ModalRitz.GetInitialCase(c, Prev) = 0 Then
+                        AddCase(Prev)
+                    End If
+                Case Else
+                    Errorlogprint("Info: all analysis cases are run (case '" & c & "' of type " & CT.ToString() & " may depend on other cases)")
+                    Return 0
+            End Select
+        End While
+        For i = 0 To N - 1
+            If Run(i) AndAlso Not Needed.Contains(Names(i)) Then
+                ret = SapModel.Analyze.SetRunCaseFlag(Names(i), False)
+                If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.SetRunCaseFlag " & Names(i)) : Return ret : End If
+                DisabledCases.Add(Names(i))
+            End If
+        Next
+        Errorlogprint("Info: analysis cases not run (not used by design / drift checks): [" & String.Join(", ", DisabledCases) & "]")
+        Return 0
+    End Function
+
+    'Before the final analysis of the best design: the saved model contains all results
+    Public Function RestoreRunCases() As Integer
+        For Each c In DisabledCases
+            Dim ret As Integer = SapModel.Analyze.SetRunCaseFlag(c, True)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.SetRunCaseFlag " & c) : Return ret : End If
+        Next
+        DisabledCases.Clear()
+        Return 0
+    End Function
+
     Private Function InitilizeSections() As Integer
         Dim ret As Integer
         ret = InitilizeSections_ReadXML()
@@ -831,6 +958,7 @@ Public Class ETABS_Class
             ret = SapModel.FrameObj.SetDesignProcedure(SteelColumn.FrameName, FramePointStoryGroupStructures_.DesignProcedure_.SteelFrameDesign, ETABSv1.eItemType.Objects)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetDesignProcedure " & SteelColumn.FrameName) : Return ret : End If
         Next
+        ForgetAssignedSections()
         ret = E3_Analysis()
         If (ret <> 0) Then : Errorlogprint("Problem occured on :E3_Analysis") : Return ret : End If
 
@@ -862,7 +990,30 @@ Public Class ETABS_Class
         Dim repair As Boolean = applyRepair AndAlso Not FormInfo.CheckStructure
         Dim Sect_Ind() As Integer = Member.DesignVariables
         Iter = iter_
+        'cache: key = design vector before repair; the final check / Check Structure always analyse
+        Dim Key As String = If(FormInfo.UseCache AndAlso repair, String.Join(",", Sect_Ind), Nothing)
+        Dim Hit As OptimizationStructure_.Member_ = Nothing
+        If Key IsNot Nothing AndAlso Cache.TryGetValue(Key, Hit) Then
+            Member.DesignVariables = CType(Hit.DesignVariables.Clone(), Integer())
+            Member.CostValue = Hit.CostValue : Member.Penalty = Hit.Penalty : Member.PenalizedCost = Hit.PenalizedCost
+            Clock("CacheHit")
+            ret = 0
+            Return
+        End If
+        Dim Total = Clock("Evaluate") : Total.Start()
+        Try
+            EvaluateCore(Member, Sect_Ind, ret, repair)
+        Finally
+            Total.Stop()
+        End Try
+        iter_ = Iter
+        If Key IsNot Nothing AndAlso ret = 0 Then
+            Cache(Key) = New OptimizationStructure_.Member_ With {.DesignVariables = CType(Member.DesignVariables.Clone(), Integer()),
+                .CostValue = Member.CostValue, .Penalty = Member.Penalty, .PenalizedCost = Member.PenalizedCost}
+        End If
+    End Sub
 
+    Private Sub EvaluateCore(ByRef Member As OptimizationStructure_.Member_, ByVal Sect_Ind() As Integer, ByRef ret As Integer, ByVal repair As Boolean)
         ret = SetAndAnalyze(Sect_Ind, repair)
         If ret <> 0 Then : Errorlogprint("Problem occured on :SetAndAnalyze") : Exit Sub : End If
 
@@ -874,7 +1025,6 @@ Public Class ETABS_Class
         If ret <> 0 Then : Errorlogprint("Problem occured on :Penalty") : Exit Sub : End If
         Member.CostValue = CostStProfile(Sect_Ind)
         Member.PenalizedCost = Member.CostValue * (1 + Member.Penalty) ^ 3
-        iter_ = Iter
     End Sub
 
     Public Function SetAndAnalyze(ByRef Sect_Ind() As Integer, ByVal applyGeometric As Boolean) As Integer
@@ -922,35 +1072,61 @@ Public Class ETABS_Class
     End Function
 
     Public Function E2_SetSection(ByRef Sect_Ind() As Integer) As Integer
+        Dim c = Clock("SetSection") : c.Start()
+        Try
+            Return E2_SetSectionCore(Sect_Ind)
+        Finally
+            c.Stop()
+        End Try
+    End Function
+
+    'Sections were assigned outside E2 (auto select lists): every group is assigned at the next E2
+    Private Sub ForgetAssignedSections()
+        ReDim Assigned(SteelFrameDesignGroupIDs.Count - 1)
+        For i = 0 To Assigned.Length - 1
+            Assigned(i) = -1
+        Next
+    End Sub
+
+    Private Function E2_SetSectionCore(ByRef Sect_Ind() As Integer) As Integer
         Dim ret As Integer
         If SapModel.GetModelIsLocked = True Then
             ret = SapModel.SetModelIsLocked(False)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :Unlock model") : Return ret : End If
         End If
+        If Assigned Is Nothing OrElse Assigned.Length <> SteelFrameDesignGroupIDs.Count Then ForgetAssignedSections()
+        If CompositeActive Then
+            'missing composite sections in one step (encased sections: one table import)
+            Dim Needed As New List(Of Integer)
+            For v = 0 To SteelFrameDesignGroupIDs.Count - 1
+                If Groups(SteelFrameDesignGroupIDs(v)).IsComposite Then Needed.Add(Sect_Ind(v))
+            Next
+            ret = EnsureCompositeSections(Needed)
+            If (ret <> 0) Then Return ret
+        End If
         For i = 0 To SteelFrameDesignGroupIDs.Count - 1
+            If Assigned(i) = Sect_Ind(i) Then Continue For
             Dim isec As Integer = SteelFrameDesignGroupIDs(i)
             Dim PropName As String = WSections(Sect_Ind(i)).SectionName
-            If CompositeActive AndAlso Groups(isec).IsComposite Then
-                ret = EnsureCompositeSection(Sect_Ind(i))
-                If (ret <> 0) Then Return ret
-                PropName = CompositeSectionName(Sect_Ind(i))
-            End If
+            If CompositeActive AndAlso Groups(isec).IsComposite Then PropName = CompositeSectionName(Sect_Ind(i))
             ret = SapModel.FrameObj.SetSection(Groups(isec).GroupName, PropName, ETABSv1.eItemType.Group)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetSection " & PropName) : Return ret : End If
             If CompositeActive AndAlso Groups(isec).IsComposite Then
-                'designed by CompositeColumn.vb, not by the ETABS steel design
+                'General section: designed by CompositeColumn.vb, not by the ETABS steel design
                 ret = SapModel.FrameObj.SetDesignProcedure(Groups(isec).GroupName, NO_DESIGN, ETABSv1.eItemType.Group)
                 If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetDesignProcedure " & Groups(isec).GroupName) : Return ret : End If
             End If
+            Assigned(i) = Sect_Ind(i)
         Next i
         Iter += 1
         Return ret
     End Function
 
     Public Function E3_Analysis() As Integer
-        Dim ret As Integer = SapModel.File.Save(WorkFile)
-        If (ret <> 0) Then : Errorlogprint("Problem occured in :File.Save " & WorkFile) : Return ret : End If
-        ret = SapModel.Analyze.RunAnalysis
+        'no File.Save: the model was opened from WorkFile, so it has a file path (required by RunAnalysis)
+        Dim c = Clock("Analysis") : c.Start()
+        Dim ret As Integer = SapModel.Analyze.RunAnalysis
+        c.Stop()
         If (ret <> 0) Then : Errorlogprint("Problem occured on :RunAnalysis") : Return ret : End If
         'cases that were set to run but did not finish (e.g. unstable / not converged nonlinear cases)
         Dim N1, N2 As Integer
@@ -971,7 +1147,9 @@ Public Class ETABS_Class
     Private Function G1_1_Design() As Integer
         Dim ret As Integer
         If SteelFrameDesignGroupIDs.Count > 0 Then
+            Dim c = Clock("SteelDesign") : c.Start()
             ret = SapModel.DesignSteel.StartDesign
+            c.Stop()
             If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignSteel.StartDesign") : Return ret : End If
         End If
         Return ret
@@ -981,13 +1159,19 @@ Public Class ETABS_Class
     Public Sub Penalty(ByRef Penalty As Double, ByRef Sect_Ind() As Integer, ByRef ret As Integer, Optional ByVal applyRepair As Boolean = True)
         Dim repair As Boolean = applyRepair AndAlso Not FormInfo.CheckStructure
         Penalty = 0
-        Call F_Evaluate_Drift(Sect_Ind, repair, ret)
-        If (ret <> 0) Then : Errorlogprint("Problem occured on :F_Evaluate_Drift") : Exit Sub : End If
-        If AnalysisFailed Then : Penalty = FAILED_PENALTY : Exit Sub : End If
+        If repair AndAlso FormInfo.RepairMode = MiscellaneousStructures.RepairMode_.Combined Then
+            Call CombinedRepair(Sect_Ind, ret)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :CombinedRepair") : Exit Sub : End If
+            If AnalysisFailed Then : Penalty = FAILED_PENALTY : Exit Sub : End If
+        Else
+            Call F_Evaluate_Drift(Sect_Ind, repair, ret)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :F_Evaluate_Drift") : Exit Sub : End If
+            If AnalysisFailed Then : Penalty = FAILED_PENALTY : Exit Sub : End If
 
-        Call G_Evaluate_PMM(Sect_Ind, repair, ret)
-        If (ret <> 0) Then : Errorlogprint("Problem occured on :G_Evaluate_PMM") : Exit Sub : End If
-        If AnalysisFailed Then : Penalty = FAILED_PENALTY : Exit Sub : End If
+            Call G_Evaluate_PMM(Sect_Ind, repair, ret)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :G_Evaluate_PMM") : Exit Sub : End If
+            If AnalysisFailed Then : Penalty = FAILED_PENALTY : Exit Sub : End If
+        End If
 
         Call H_Evaluate_GeometricPenalty(Sect_Ind)
 
@@ -998,6 +1182,61 @@ Public Class ETABS_Class
         Dim GeometricPenalty As Double = MaxRatioPenalty(ETABS_print.ColumnToColumnGeometricRatio) + MaxRatioPenalty(ETABS_print.BeamToColumnGeometricRatio)
         Penalty = InterStoryDriftPenalty + TopStoryDriftPenalty + PMMPenalty + GeometricPenalty
     End Sub
+
+    'RepairMode = Combined: constraints of one analysis -> all repair steps at once (largest step per variable)
+    '-> one re-analysis -> constraints of the final state
+    Private Sub CombinedRepair(ByRef Sect_Ind() As Integer, ByRef ret As Integer)
+        ret = EvaluateConstraints()
+        If ret <> 0 OrElse AnalysisFailed Then Exit Sub
+        Dim Steps() As Integer = RepairSteps()
+        If Steps.All(Function(s) s = 0) Then Exit Sub
+        For v = 0 To Steps.Length - 1
+            If Steps(v) <> 0 Then StepVariable(Sect_Ind, v, Steps(v))
+        Next
+        ret = SetAndAnalyze(Sect_Ind, True)
+        If ret <> 0 Then : Errorlogprint("Problem occured on :SetAndAnalyze (combined repair)") : Exit Sub : End If
+        If AnalysisFailed Then Exit Sub
+        ret = EvaluateConstraints()
+    End Sub
+
+    'Inter-story drift, top drift and PMM ratios of the current analysis
+    Private Function EvaluateConstraints() As Integer
+        Dim ret As Integer = F1_ConsInterStoryDrift()
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :F1_ConsInterStoryDrift") : Return ret : End If
+        ret = F3_ConsTopStoryDrift()
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :F3_ConsTopStoryDrift") : Return ret : End If
+        ret = G1_ConsPMM(False)
+        If (ret <> 0) Then Errorlogprint("Problem occured on :G1_ConsPMM")
+        Return ret
+    End Function
+
+    'Steps of F2 (story columns), F4 (all columns) and G2 (overstressed groups); largest step per variable
+    Private Function RepairSteps() As Integer()
+        Dim N As Integer = WSections.Count
+        Dim Steps(SteelFrameDesignGroupIDs.Count - 1) As Integer
+        For i = 0 To Stories.Length - 1
+            Dim Ratio As Double = Math.Max(Stories(i).InterStoryDPenaltyX, Stories(i).InterStoryDPenaltyY) + 1
+            If Ratio <= 1 Then Continue For
+            Dim s As Integer = CInt(DRIFT_LOG_MULTIPLIER * Math.Log(Ratio) * N)
+            For Each v In StoryColumnVars(i)
+                Steps(v) = Math.Max(Steps(v), s)
+            Next
+        Next
+        Dim Top As Double = Math.Max(TopDriftX, TopDriftY) / TopDriftLimit
+        If Top > 1 Then
+            Dim s As Integer = CInt(DRIFT_LOG_MULTIPLIER * Math.Log(Top) * N)
+            For i = 0 To Stories.Length - 1
+                For Each v In StoryColumnVars(i)
+                    Steps(v) = Math.Max(Steps(v), s)
+                Next
+            Next
+        End If
+        For i = 0 To Steps.Length - 1
+            Dim R As Double = Groups(SteelFrameDesignGroupIDs(i)).PMMRatio
+            If R > 1 Then Steps(i) = Math.Max(Steps(i), CInt(PMM_LOG_MULTIPLIER * Math.Log(R) * N))
+        Next
+        Return Steps
+    End Function
 
     Private Shared Function MaxRatioPenalty(ByVal Ratios As List(Of Double)) As Double
         If Ratios Is Nothing OrElse Ratios.Count = 0 Then Return 0
@@ -1062,6 +1301,15 @@ Public Class ETABS_Class
 
     'One API call for all joints (group "All") instead of one call per joint
     Private Function F1_1_UpdateJointDisp() As Integer
+        Dim c = Clock("JointDispl") : c.Start()
+        Try
+            Return F1_1_UpdateJointDispCore()
+        Finally
+            c.Stop()
+        End Try
+    End Function
+
+    Private Function F1_1_UpdateJointDispCore() As Integer
         Dim ret As Integer = SelectOutputCases()
         If (ret <> 0) Then Return ret
 
@@ -1213,7 +1461,9 @@ Public Class ETABS_Class
                 End If
             Next i
             If CompositeActive Then
+                Dim c = Clock("CompositeCheck") : c.Start()
                 ret = G1_2_ConsComposite()
+                c.Stop()
                 If (ret <> 0) Then : Errorlogprint("Problem occured on :G1_2_ConsComposite") : Return ret : End If
             End If
         Catch ex As Exception
@@ -1249,7 +1499,8 @@ Public Class ETABS_Class
             Next
             Dim SecID As Integer = CompositeSectionID(Groups(ID).GroupName)
             If SecID < 0 Then : Errorlogprint("Composite section of group " & Groups(ID).GroupName & " not found") : Return -1 : End If
-            Dim GroupRatio As Double = Encased(SecID).DetailingRatio()
+            Dim Detailing As Double = Encased(SecID).DetailingRatio()
+            Dim Strength As Double = 0
             For Each Block In Blocks.Values
                 Dim ks = Block.OrderBy(Function(k) ObjSta(k)).ToList()
                 Dim Check As CompositeMemberCheck = MemberCheck(SecID, Frames(FrameIndex(Obj(ks(0)))).FrameLenght)
@@ -1258,8 +1509,11 @@ Public Class ETABS_Class
                 Dim r As Double = Check.Ratio(P(kP), ks.Select(Function(k) M3(k)).ToArray(), ks.Select(Function(k) M2(k)).ToArray(),
                                               ks.Max(Function(k) Math.Abs(V2(k))), ks.Max(Function(k) Math.Abs(V3(k))), PMM, Shear,
                                               ks.Max(Function(k) Math.Abs(T(k))))
-                GroupRatio = Math.Max(GroupRatio, r)
+                Strength = Math.Max(Strength, r)
             Next
+            Dim GroupRatio As Double = Math.Max(Detailing, Strength)
+            Groups(ID).CompositeStrength = Strength
+            Groups(ID).CompositeDetailing = Detailing
             Groups(ID).PMMRatio = GroupRatio
             ETABS_print.PMM_Ratios.Add(GroupRatio)
             ETABS_print.CompositeRatios.Add(GroupRatio)
@@ -1412,10 +1666,235 @@ Public Class ETABS_Class
         Return CompositeSettings.SectionPrefix & WSections(SecID).SectionName
     End Function
 
-    'ETABS General section with transformed properties (steel material, weight/mass by modifiers)
+    '_______________________________________________________________________________________________
+    'Composite sections in the ETABS model
+    ' Search      : General section with transformed properties (CreateGeneralSection), checked by CompositeColumn.vb.
+    ' Final/check : ETABS 20+ -> the General sections of the design are replaced (same names) by real encased sections
+    '               (type EncasedRectangle + rebar) and checked by the ETABS composite column design
+    '               (VerifyCompositeWithETABS). The OAPI has no setter for encased sections, so they are created through
+    '               the database tables. Not used during the search: with 289 encased sections in the 525M model one
+    '               analysis took 128 s instead of 10 s and a table import about 2 min.
+    Private Const ENCASED_TABLE As String = "Frame Section Property Definitions - Conc Encasement Rectangle"
+    Private Const COLUMN_REBAR_TABLE As String = "Frame Section Property Definitions - Concrete Column Reinforcing"
+    Public UseEncasedSections As Boolean
+
+    Private Function DetectEncasedSections() As Integer
+        Dim N As Integer, Keys() As String = Nothing, Names() As String = Nothing, ImportType() As Integer = Nothing, IsEmpty() As Boolean = Nothing
+        Dim ret As Integer = SapModel.DatabaseTables.GetAllTables(N, Keys, Names, ImportType, IsEmpty)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :DatabaseTables.GetAllTables") : Return ret : End If
+        Dim Available As New HashSet(Of String)(If(Keys, New String() {}).Take(N))
+        UseEncasedSections = Available.Contains(ENCASED_TABLE) AndAlso Available.Contains(COLUMN_REBAR_TABLE)
+        Errorlogprint("Info: composite columns: General sections during the search, " &
+                      If(UseEncasedSections, "final design checked with ETABS encased sections and the ETABS composite column design", "no ETABS composite check (needs ETABS 20+)"))
+        Return 0
+    End Function
+
     Private Function EnsureCompositeSection(ByVal SecID As Integer) As Integer
+        Return EnsureCompositeSections({SecID})
+    End Function
+
+    'Creates the General composite sections that do not exist yet
+    Private Function EnsureCompositeSections(ByVal SecIDs As IEnumerable(Of Integer)) As Integer
+        Dim Missing As List(Of Integer) = SecIDs.Distinct().Where(Function(id) Not CreatedSections.Contains(CompositeSectionName(id))).ToList()
+        If Missing.Count = 0 Then Return 0
+        Dim c = Clock("CreateSections") : c.Start()
+        Try
+            For Each id In Missing
+                Dim ret As Integer = CreateGeneralSection(id)
+                If ret <> 0 Then Return ret
+            Next
+            Return 0
+        Finally
+            c.Stop()
+        End Try
+    End Function
+
+    'Rebar size of the model with the given diameter [mm]
+    Private Function RebarSizeName(ByVal Diameter As Double, ByRef SizeName As String) As Integer
+        Dim N As Integer, Names() As String = Nothing
+        Dim ret As Integer = SapModel.PropRebar.GetNameList(N, Names)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :PropRebar.GetNameList") : Return ret : End If
+        For i = 0 To N - 1
+            Dim A, D As Double
+            If SapModel.PropRebar.GetRebarProps(Names(i), A, D) = 0 AndAlso Math.Abs(D - Diameter) < 0.5 Then SizeName = Names(i) : Return 0
+        Next
+        Errorlogprint("No rebar size with diameter " & Diameter & " mm in the model (Define > Section Properties > Reinforcing Bar Sizes)")
+        Return -1
+    End Function
+
+    Private Function CreateEncasedSections(ByVal Missing As List(Of Integer)) As Integer
+        Dim BarName As String = Nothing, TieName As String = Nothing
+        Dim ret As Integer
+        'table edits are ignored (without an error) while the model is locked after an analysis
+        If SapModel.GetModelIsLocked() Then
+            ret = SapModel.SetModelIsLocked(False)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :Unlock model") : Return ret : End If
+        End If
+        ret = RebarSizeName(CompositeSettings.RebarDiameter, BarName)
+        If ret <> 0 Then Return ret
+        ret = RebarSizeName(CompositeSettings.TieDiameter, TieName)
+        If ret <> 0 Then Return ret
+        Dim Fmt = Function(x As Double) x.ToString("R", CultureInfo.InvariantCulture)
+        Dim SectionFields() As String = {"Name", "Material", "FromFile", "t3", "t2", "EmbedISect", "EncaseMat", "NotSizeType", "NotAutoFact", "Notes",
+                                         "AMod", "A2Mod", "A3Mod", "JMod", "I2Mod", "I3Mod", "MMod", "WMod"}
+        Dim RebarFields() As String = {"Name", "RebarMatL", "RebarMatC", "ReinfConfig", "IsDesigned", "Cover", "NumBars3Dir", "NumBars2Dir",
+                                       "BarSizeLong", "BarSizeCorn", "BarSizeConf", "SpacingConf", "NumCBars3", "NumCBars2"}
+        Dim SectionRows As New List(Of String), RebarRows As New List(Of String)
+        For Each id In Missing
+            Dim S As EncasedIShape = Encased(id)
+            Dim Name As String = CompositeSectionName(id)
+            Dim PerFace As Integer = (S.RebarPos.Count + 4) \ 4                          'perimeter layout: 4n - 4 bars
+            Dim ClearCover As Double = CompositeSettings.RebarCover - CompositeSettings.TieDiameter - S.BarDiameter / 2
+            SectionRows.AddRange({Name, STEEL_MATERIAL, "No", Fmt(S.H), Fmt(S.B), S.Steel.SectionName, CompositeSettings.ConcreteMaterial, "Auto", "1",
+                                  "Encased " & S.Steel.SectionName & ", " & S.RebarPos.Count & "D" & S.BarDiameter,
+                                  "1", "1", "1", "1", "1", "1", "1", "1"})
+            RebarRows.AddRange({Name, CompositeSettings.RebarMaterial, CompositeSettings.RebarMaterial, "Rectangular", "No", Fmt(ClearCover),
+                                PerFace.ToString(), PerFace.ToString(), BarName, BarName, TieName, Fmt(CompositeSettings.TieSpacing), "2", "2"})
+        Next
+        ret = SetTable(ENCASED_TABLE, SectionFields, Missing.Count, SectionRows.ToArray())
+        If ret <> 0 Then Return ret
+        ret = SetTable(COLUMN_REBAR_TABLE, RebarFields, Missing.Count, RebarRows.ToArray())
+        If ret <> 0 Then Return ret
+        Dim NFatal, NErr, NWarn, NInfo As Integer, ImportLog As String = Nothing
+        ret = SapModel.DatabaseTables.ApplyEditedTables(True, NFatal, NErr, NWarn, NInfo, ImportLog)
+        If ret <> 0 OrElse NFatal + NErr > 0 Then
+            Errorlogprint("Problem occured on :DatabaseTables.ApplyEditedTables (encased sections), errors " & NFatal + NErr & Environment.NewLine & ImportLog)
+            Return If(ret <> 0, ret, -1)
+        End If
+        For Each id In Missing
+            Dim Name As String = CompositeSectionName(id)
+            Dim PropType As ETABSv1.eFramePropType
+            If SapModel.PropFrame.GetTypeOAPI(Name, PropType) <> 0 OrElse PropType <> ETABSv1.eFramePropType.EncasedRectangle Then
+                Errorlogprint("Encased section " & Name & " was not created (warnings " & NWarn & ")" & Environment.NewLine & ImportLog)
+                Return -1
+            End If
+            CreatedSections.Add(Name)
+        Next
+        Errorlogprint("Info: " & Missing.Count & " encased sections created (" & CompositeSectionName(Missing.First()) & " ...)")
+        Return 0
+    End Function
+
+    'Adds / replaces records (by "Name") of a database table. The import replaces the whole table (records that are
+    'not in the edited table are deleted from the model), so the existing records are written back as well.
+    Private Function SetTable(ByVal Key As String, ByVal Fields() As String, ByVal NumberRecords As Integer, ByVal Data() As String) As Integer
+        Dim Version As Integer, AllFields() As String = Nothing, N As Integer, Existing() As String = Nothing
+        Dim ret As Integer = SapModel.DatabaseTables.GetTableForEditingArray(Key, "", Version, AllFields, N, Existing)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :DatabaseTables.GetTableForEditingArray " & Key) : Return ret : End If
+        Dim NF As Integer = AllFields.Length
+        Dim iName As Integer = Array.IndexOf(AllFields, "Name")
+        Dim NewNames As New HashSet(Of String)(Enumerable.Range(0, NumberRecords).Select(Function(r) Data(r * Fields.Length)))
+        Dim Rows As New List(Of String)
+        Dim Count As Integer = 0
+        For r = 0 To N - 1
+            If iName >= 0 AndAlso NewNames.Contains(Existing(r * NF + iName)) Then Continue For
+            For f = 0 To NF - 1
+                Rows.Add(Existing(r * NF + f))
+            Next
+            Count += 1
+        Next
+        For r = 0 To NumberRecords - 1
+            For f = 0 To NF - 1
+                Dim k As Integer = Array.IndexOf(Fields, AllFields(f))
+                Rows.Add(If(k >= 0, Data(r * Fields.Length + k), ""))
+            Next
+            Count += 1
+        Next
+        ret = SapModel.DatabaseTables.SetTableForEditingArray(Key, Version, AllFields, Count, Rows.ToArray())
+        If (ret <> 0) Then Errorlogprint("Problem occured on :DatabaseTables.SetTableForEditingArray " & Key)
+        Return ret
+    End Function
+
+    '_______________________________________________________________________________________________
+    'ETABS composite column design (AISC 360-16 / 360-22) of the current analysis: verification of the final or
+    'checked design. Results come from the database table, cDesignCompositeColumn.GetSummaryResults returns
+    'shifted data in ETABS 22.6. Fills ETABS_print.ETABSCompositeCheck / ETABSCompositeRatios.
+    Public Function VerifyCompositeWithETABS() As Integer
+        ETABS_print.ETABSCompositeCheck = New List(Of String)
+        ETABS_print.ETABSCompositeRatios = New List(Of Double)
+        If Not (FormInfo.CompositeColumns AndAlso UseEncasedSections) OrElse Assigned Is Nothing Then Return 0
+        Dim ret As Integer
+        '1. the General sections of the current design -> encased sections with the same names
+        Dim CompVars As List(Of Integer) = Enumerable.Range(0, SteelFrameDesignGroupIDs.Count).Where(Function(v) Groups(SteelFrameDesignGroupIDs(v)).IsComposite).ToList()
+        Dim clkS = Clock("CreateSections") : clkS.Start()
+        ret = CreateEncasedSections(CompVars.Select(Function(v) Assigned(v)).Distinct().ToList())
+        clkS.Stop()
+        If ret <> 0 Then Return ret
+        '2. composite column design procedure (the search set "No Design"; re-assigning the section does not reset it)
+        For Each v In CompVars
+            Dim G As String = Groups(SteelFrameDesignGroupIDs(v)).GroupName
+            ret = SapModel.FrameObj.SetSection(G, CompositeSectionName(Assigned(v)), ETABSv1.eItemType.Group)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetSection " & G) : Return ret : End If
+            ret = SapModel.FrameObj.SetDesignProcedure(G, COMPOSITE_COLUMN_DESIGN, ETABSv1.eItemType.Group)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetDesignProcedure " & G) : Return ret : End If
+        Next
+        Dim Proc As Integer
+        SapModel.FrameObj.GetDesignProcedure(Groups(SteelFrameDesignGroupIDs(CompVars(0))).GroupObjectNames(0), Proc)
+        Errorlogprint("Info: composite columns replaced by ETABS encased sections (design procedure " & Proc & ")")
+        '3. analysis of the encased model; internal check on the same analysis
+        ret = E3_Analysis()
+        If ret <> 0 Then Return ret
+        If AnalysisFailed Then : Errorlogprint("Warning: analysis of the encased model not finished, no ETABS composite check") : Return 0 : End If
+        ret = G1_ConsPMM(False)
+        If ret <> 0 Then Return ret
+        '4. ETABS composite column design
+        Dim CodeName As String = CompositeCodeName(FormInfo.CompositeCode)
+        ret = SapModel.DesignCompositeColumn.SetCode(CodeName)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignCompositeColumn.SetCode " & CodeName) : Return ret : End If
+        For Each c In ComboNames.DesignSteelStrength
+            ret = SapModel.DesignCompositeColumn.SetComboStrength(c, True)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignCompositeColumn.SetComboStrength " & c) : Return ret : End If
+        Next
+        Dim clk = Clock("CompositeDesignETABS") : clk.Start()
+        ret = SapModel.DesignCompositeColumn.StartDesign()
+        clk.Stop()
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignCompositeColumn.StartDesign") : Return ret : End If
+        Dim Key As String = "Composite Column Summary - " & CodeName
+        Dim Version, N As Integer, Fields() As String = Nothing, Data() As String = Nothing
+        ret = SapModel.DatabaseTables.GetTableForDisplayArray(Key, Nothing, "", Version, Fields, N, Data)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :DatabaseTables.GetTableForDisplayArray " & Key) : Return ret : End If
+        Dim iName As Integer = Array.IndexOf(Fields, "UniqueName"), iPMM As Integer = Array.IndexOf(Fields, "PMMRatio")
+        Dim iV2 As Integer = Array.IndexOf(Fields, "VMajRatio"), iV3 As Integer = Array.IndexOf(Fields, "VMinRatio"), iMsg As Integer = Array.IndexOf(Fields, "Message")
+        If iName < 0 OrElse iPMM < 0 Then : Errorlogprint("Unexpected fields in " & Key & ": " & String.Join(", ", Fields)) : Return -1 : End If
+        Dim Num = Function(s As String) As Double
+                      Dim x As Double
+                      Return If(Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, x), x, 0)
+                  End Function
+        'per group: largest PMM and shear ratio, design messages
+        Dim PMM As New Dictionary(Of String, Double), Shear As New Dictionary(Of String, Double), Messages As New Dictionary(Of String, HashSet(Of String))
+        For r = 0 To N - 1
+            Dim F As Integer = 0
+            If Not FrameIndex.TryGetValue(Data(r * Fields.Length + iName), F) Then Continue For
+            Dim G As String = Frames(F).GroupName
+            If G Is Nothing Then Continue For
+            PMM(G) = Math.Max(If(PMM.ContainsKey(G), PMM(G), 0), Num(Data(r * Fields.Length + iPMM)))
+            Dim V As Double = Math.Max(If(iV2 >= 0, Num(Data(r * Fields.Length + iV2)), 0), If(iV3 >= 0, Num(Data(r * Fields.Length + iV3)), 0))
+            Shear(G) = Math.Max(If(Shear.ContainsKey(G), Shear(G), 0), V)
+            If Not Messages.ContainsKey(G) Then Messages(G) = New HashSet(Of String)
+            Dim Msg As String = If(iMsg >= 0, Data(r * Fields.Length + iMsg), "")
+            If Not String.IsNullOrWhiteSpace(Msg) AndAlso Msg <> "No Message" Then Messages(G).Add(Msg)
+        Next
+        For v = 0 To SteelFrameDesignGroupIDs.Count - 1
+            Dim ID As Integer = SteelFrameDesignGroupIDs(v)
+            If Not Groups(ID).IsComposite Then Continue For
+            Dim G As String = Groups(ID).GroupName
+            If Not PMM.ContainsKey(G) Then
+                Errorlogprint("Warning: no ETABS composite design result for group " & G)
+                Continue For
+            End If
+            Dim Line As String = G & ": ETABS PMM " & PMM(G).ToString("F3", CultureInfo.InvariantCulture) & ", shear " & Shear(G).ToString("F3", CultureInfo.InvariantCulture) &
+                                 " | internal strength " & Groups(ID).CompositeStrength.ToString("F3", CultureInfo.InvariantCulture) &
+                                 ", detailing " & Groups(ID).CompositeDetailing.ToString("F3", CultureInfo.InvariantCulture) &
+                                 If(Messages(G).Count > 0, " | " & String.Join("; ", Messages(G)), "")
+            ETABS_print.ETABSCompositeCheck.Add(Line)
+            ETABS_print.ETABSCompositeRatios.Add(Math.Max(PMM(G), Shear(G)))
+            Errorlogprint("Info: ETABS composite check (" & CodeName & ") " & Line)
+        Next
+        Return 0
+    End Function
+
+    'ETABS 19: General section with transformed properties (steel material, weight/mass by modifiers)
+    Private Function CreateGeneralSection(ByVal SecID As Integer) As Integer
         Dim Name As String = CompositeSectionName(SecID)
-        If CreatedSections.Contains(Name) Then Return 0
         Dim S As EncasedIShape = Encased(SecID)
         Dim T As TransformedSection_ = S.Transformed()
         Dim Notes As String = "Encased " & S.Steel.SectionName & " in " & S.H & "x" & S.B & " " & CompositeSettings.ConcreteMaterial & ", " & S.RebarPos.Count & "D" & S.BarDiameter
@@ -1455,4 +1934,7 @@ Public Class ETABS_Print
     Public BeamToColumnGeometricRatio As New List(Of Double)
     Public ColumnToColumnGeometricRatio As New List(Of Double)
     Public CompositeRatios As New List(Of Double)
+    'ETABS composite column design of the final / checked design (ETABS 20+): max(PMM, shear) per composite group
+    Public ETABSCompositeRatios As New List(Of Double)
+    Public ETABSCompositeCheck As New List(Of String)
 End Class

@@ -39,21 +39,35 @@ Değişiklik geçmişi: `DEGISIKLIKLER.md`. Kullanım: `KULLANIM_KILAVUZU.md`. K
 ## 4. Değerlendirme akışı (değiştirirken korunmalı)
 ```
 Evaluate(Member, applyRepair)
- └ SetAndAnalyze(Sect_Ind, geometri düzeltmesi)   E1 geometri → E2 kesit ata → E3 kaydet + analiz + durum kontrolü
+ └ önbellek (UseCache, yalnızca düzeltmeli değerlendirmede): anahtar = düzeltme ÖNCESİ vektör → isabet varsa ETABS çağrılmaz
+ └ SetAndAnalyze(Sect_Ind, geometri düzeltmesi)   E1 geometri → E2 kesit ata (yalnızca değişen gruplar) → E3 analiz + durum kontrolü
  └ AnalysisFailed ise → Penalty = 10 (program durmaz)
  └ Penalty
-     F_Evaluate_Drift  : F1 göreli öteleme → (düzeltme varsa F2 + yeniden analiz) → F3 tepe ötelemesi → (F4 + yeniden analiz)
-     G_Evaluate_PMM    : G1 çelik tasarım + G1_2 kompozit kontrol → (G2 + yeniden analiz + F + G1)
-     H geometrik       : kolon-kolon ve kiriş-kolon oranları
+     RepairMode = Sequential (eski akış, eski yedeklerde varsayılan):
+       F_Evaluate_Drift : F1 göreli öteleme → (F2 + yeniden analiz) → F3 tepe ötelemesi → (F4 + yeniden analiz)
+       G_Evaluate_PMM   : G1 çelik tasarım + G1_2 kompozit kontrol → (G2 + yeniden analiz + F + G1)
+     RepairMode = Combined (formda varsayılan):
+       CombinedRepair   : F1 + F3 + G1 → RepairSteps (F2/F4/G2 adımlarının değişken başına EN BÜYÜĞÜ) → tek yeniden analiz → F1 + F3 + G1
+     H geometrik        : kolon-kolon ve kiriş-kolon oranları
      ceza = tüm kısıtlar, SON analiz durumu üzerinden
  └ Cost = CostStProfile (çelik modda ağırlık, kompozit modda göreli maliyet)
  └ PenalizedCost = Cost · (1 + Penalty)^3
 ```
+- Sıralı modda bir değerlendirme en fazla 6 analiz ve 3 tasarım yapar; birleşik modda en fazla 2 analiz ve 2 tasarım. 525M modelinde süreler 68 s ve 26 s'dir.
+- İki mod aynı başlangıç vektöründen farklı sonuçlar üretir. Karşılaştırmalı çalışmalarda mod `FormInfo.RepairMode` ile sabitlenir ve sonuç XML'inin yedeğinde saklanır.
+- `E2` hangi kesitin atandığını `Assigned()` ile izler. Kesitler `E2` dışında atanırsa (otomatik listeler, `Initilize_UBLB`) `ForgetAssignedSections()` çağrılmalıdır.
+- `E3` artık `File.Save` çağırmaz: model `WorkFile` üzerinden açıldığı için `RunAnalysis` dosya yolunu bilir. Analiz ETABS süreci içinde çalıştırılır (`SetSolverOption_3`, process 1), bu analiz başına yaklaşık %10 kazandırır.
+- **Önbellek ve döngü sonu:** önbellek isabetleri analiz sayacını (`iter`) artırmaz. Ana döngü, art arda `MAX_STALL_LOOPS` (20) çevrimde yeni analiz yapılmazsa yakınsamış kabul edilip sonlanır.
+- **SkipUnusedCases:** tasarım ve öteleme kontrolünde kullanılmayan yük durumları çözülmez. Kullanılan durumların başlangıç ve modal durumları, tüm Modal durumlar ve `~` ile başlayan iç durumlar korunur. Tanınmayan bir durum tipi varsa hiçbir durum kapatılmaz. `Opt_Finalize`, final analizinden önce `RestoreRunCases` çağırır; böylece `_best.EDB` tüm sonuçları içerir.
+- **Süre ölçümü:** `Clock("ad")` ile her ETABS işleminin süresi ve çağrı sayısı tutulur, `Close` sırasında `Info: timing …` satırıyla yazılır. Yeni bir ETABS işlemi eklenirse süresi de ölçülmelidir.
 Kurallar:
 - Her yeniden analizden sonra, cezada kullanılan kısıtlar **yeniden hesaplanmalıdır**. Eski sonuçla ceza hesaplanmaz.
 - Düzeltme (repair) adımları yalnızca `applyRepair = True` ve Check Structure kapalıyken çalışır. Final değerlendirmesi ve Check Structure düzeltme yapmaz.
 - Düzeltme adımları `Sect_Ind` dizisini **yerinde** değiştirir; bu değişiklik bireye geri yazılır (Lamarck yaklaşımı). Adımlar değişkeni `[Lb, Ub]` aralığında tutar (`StepVariable`).
-- API çağrıları `ret` döndürür; `ret <> 0` ise `Errorlogprint` ile kaydedilip yukarıya iletilir. `Stop`, `MsgBox` veya yakalanmamış istisna kullanılmaz; `MsgBox` yalnızca `Close` ve formda kullanılır.
+- API çağrıları `ret` döndürür; `ret <> 0` ise `Errorlogprint` ile kaydedilip yukarıya iletilir.
+  - `Stop`, `MsgBox` veya yakalanmamış istisna kullanılmaz. `MsgBox` yalnızca formda, `Close` içinde ve `Opt_Finalize` içinde kullanılır.
+  - `ETABS_Class.Quiet = True` ise `Close` ve `Opt_Finalize` mesaj kutusu göstermez (toplu koşular, testler).
+- `OptimizationClass.LogError` ve `MainForm.LogError` mesajı `Errorlogprint`'e iletir. Kendi kendini çağıran bu tür metotlara dikkat edilmeli: Aşama 5'te bulunan sonsuz özyineleme her koşunun sonunda programı çökertiyordu.
 - Tasarımın kötü olmasından kaynaklanan durumlar (analizin tamamlanmaması, tasarım sonucu olmaması) **hata değil, ceza** olarak ele alınır (`AnalysisFailed`).
 - Sonuç okumadan önce çıktı seçimi yapılmalıdır:
   - Öteleme: `SelectOutputCases`.
@@ -68,6 +82,25 @@ Kurallar:
   - Rijitlik: EI_eff / Es. Ağırlık ve kütle `SetModifiers` ile verilir (indeks 6 ve 7).
   - Her kesit bir koşuda bir kez oluşturulur (`CreatedSections`).
 - Kompozit gruplar kesit atamasından sonra `SetDesignProcedure(…, 7)` ile ETABS çelik tasarımından çıkarılır. Yeniden açılışta `EC_` önekli kesitler yine değişken kabul edilir.
+- **ETABS kompozit kolon tasarımı (ETABS 20+, `VerifyCompositeWithETABS`)**: yalnızca final değerlendirmesinde ve Check Structure'da çalışır.
+  - Akış:
+    1. Tasarımın General kesitleri aynı adla `EncasedRectangle` kesitlerine dönüştürülür.
+    2. Kesitler yeniden atanır ve tasarım prosedürü `SetDesignProcedure(…, 13)` ile kompozit kolon yapılır. Aramada atanan 7 (No Design), kesit yeniden atanınca sıfırlanmaz.
+    3. Analiz yapılır ve aynı analizde iç çözücü (`G1_ConsPMM`) çalıştırılır.
+    4. `DesignCompositeColumn.SetCode` + `StartDesign` çalıştırılır.
+    5. Sonuçlar `Composite Column Summary - <kod>` tablosundan okunur.
+  - API bilgileri:
+    - Gömülü kesit ve donatı için OAPI setter yoktur. `SetRebarColumn` gömülü kesitte `ret = 1` döner. Kesit ve donatı `DatabaseTables` ile yazılır: `Conc Encasement Rectangle` ve `Concrete Column Reinforcing` tabloları.
+    - `DesignCompositeColumn.GetSummaryResults` ETABS 22.6'da kaymış veri döndürür (çerçeve adı yerine kesit adı, PMM = 0). Sonuçlar tablodan okunur.
+    - `SetDesignProcedure` değerleri `GetDesignProcedure` ile aynıdır: 0 = malzemeden varsayılan (gömülü kesitte 13), 7 = No Design, 13 = kompozit kolon. `1` gömülü kesitli bir grupta gizli ETABS'i kilitledi (muhtemelen onay penceresi); kullanılmamalı.
+  - Tablo kuralları (`SetTable`):
+    - İçe aktarma **tüm tabloyu değiştirir**: tabloda olmayan kayıtlar modelden silinir. Bu yüzden mevcut kayıtlar da geri yazılır.
+    - Kilitli modelde tablo düzenlemesi hatasız ama **etkisiz** kalır; önce `SetModelIsLocked(False)` çağrılmalı.
+    - Tablo düzenlemesi analiz sonuçlarını siler.
+    - Boş alan varsayılan değil 0 olabilir; özellik çarpanları (`AMod` …) açıkça 1 yazılır.
+  - Donatı yerleşimi iç çözücüyle aynıdır: yüz başına n çubuk (`NumBars3Dir = NumBars2Dir = n`). Net pas payı = `RebarCover − TieDiameter − çubuk/2`, yani çubuk merkezi yüzeyden `RebarCover` uzaklıktadır.
+  - **Arama sırasında gömülü kesit kullanılmaz.** 525M modelinde 289 gömülü kesit tanımlıyken bir analiz 128 s sürdü (General section ile yaklaşık 10 s). 289 kesitin içe aktarılması yaklaşık 2 dakika, ETABS kompozit tasarımı 36–200 s sürdü.
+  - İç çözücüde `PMMRatio = max(dayanım, detay)`. ETABS ile karşılaştırmada `CompositeStrength` (yalnızca dayanım) kullanılır, `CompositeDetailing` ayrıca gösterilir.
 - Yeni bir kesit tipi (FilledBox, FilledPipe) optimizasyona bağlanacaksa:
   - Ayrı bir katalog ve değişken uzayı gerekir.
   - `Encased(SecID)`, `CostStProfile`, `DescribeVariable` ve `H_Evaluate_GeometricPenalty` genelleştirilmelidir.
@@ -85,11 +118,15 @@ Kurallar:
 - Formüllerde değişiklik yapıldıktan sonra doğrulama testi tekrarlanmalıdır: gömülü W10x45 PSDM ile kapalı form arasındaki fark %1'in altında kalmalıdır (bkz. DEGISIKLIKLER.md).
 - Regresyon testi: aynı kesit ve kuvvet setinde 360-16 modu, git'teki önceki `CompositeColumn.vb` ile birebir aynı çıktıyı vermelidir. Fark yalnızca bilinçli düzeltmelerden kaynaklanabilir.
 
-## 6. Rastgelelik
+## 6. Algoritmalar
+- `GlobalBest` yalnızca **cezasız** çözümlerle güncellenir. O zamana kadar değişkenleri 0'dır ve `PenalizedCost = ∞` olur.
+- En iyi çözüme yönelen adımlar (Dandelion iniş aşaması, Levy uçuşu, Whale lideri) `OptimizationClass.Leader()` kullanır. Leader, uygun çözüm varsa `GlobalBest`'i, yoksa belleğin en iyisini döndürür. Doğrudan `GlobalBest.DesignVariables` kullanılmaz.
+
+## 7. Rastgelelik
 - Tüm rastgele sayılar VB `Rnd()` (algoritmalar) ve `ETABS_Class.Rng` (geometri düzeltmesi) üzerinden üretilir. Her ikisi de `MainForm.SetRandomSeed` ile tohumlanır.
 - Yeni kodda `New Random()` oluşturulmaz; aynı tohum aynı sonucu vermelidir.
 
-## 7. Dosya ve çıktı kuralları
+## 8. Dosya ve çıktı kuralları
 - **Çalışma kopyası:** girdi modeli hiçbir zaman değiştirilmez.
   - `InitilizeETABS` modeli `WorkFolder` klasörüne kopyalar (`App.config`; boşsa `%TEMP%\SteelFrameOpt`). Klasör adı `<model>_<yyyyMMdd_HHmmss>` biçimindedir. ETABS bu kopyayı (`WorkFile`) açar.
   - `E3_Analysis` her analizde **`WorkFile`** üzerine kaydeder. Model dosyasına kaydetme yalnızca `WorkFile` ve `_best.EDB` için yapılır.
@@ -104,7 +141,7 @@ Kurallar:
 - `GlobalBestPrint` biçimi `"Grup: <W adı> [ek bilgi]"` şeklindedir. `Read_SectionID` ilk kelimeyi W adı olarak okur; biçim bozulmamalıdır.
 - `Structures.vb` içindeki alanlar XML serileştirmesine girer. Alan silmek veya yeniden adlandırmak eski yedekleri bozar; yeni alan eklemek güvenlidir.
 
-## 8. Derleme ve test (Visual Studio olmadan)
+## 9. Derleme ve test (Visual Studio olmadan)
 - Derleme kontrolü: Roslyn `dotnet "<sdk>/Roslyn/bincore/vbc.dll"`; referanslar .NETFramework v4.7.2 reference assemblies ve `ETABSv1.dll`. `dotnet msbuild` bu projede resx üretemez.
 - ETABS testleri modelin **kopyası** üzerinde yapılır. Test sonunda `ApplicationExit` çağrılmalı ve arkada kalan `ETABS.exe` olmamalıdır.
 - Çelik kodu:
@@ -113,3 +150,9 @@ Kurallar:
   - v22'de `SetCode` bazı adları normalleştirir (ör. `Eurocode 3-2005` → `EN 1993-1-1:2005`). Atanan kod `GetCode` ile okunup günlüğe yazılır. Geçersiz ad `ret = 1` döndürür.
 - `vbc` derlemesinde referans yolları boşluk içerir; yanıt dosyasında (`@args.rsp`) tırnak içinde yazılmalıdır.
 - Test kodundaki `Module` üye adları (`F`, `Mat`, `W` …) büyük/küçük harf duyarsızlığı yüzünden kaynak koddaki adlarla çakışabilir.
+- **GUI kontrolü:** `MainForm.Designer.vb` elle düzenlenir.
+  - Değişiklikten sonra form bir test programında açılır ve her sekme `DrawToBitmap` ile PNG'ye kaydedilip incelenir.
+  - Formun resource dosyası (`.resx`) yoktur; form bu yüzden test programında açılabilir.
+  - Yeni kontroller için dört yere ekleme yapılır: `Me.X = New …`, ebeveynin `Controls.Add`, özellik bloğu ve `Friend WithEvents`.
+- **Uçtan uca optimizasyon testi:** `OptimizationClass` formdaki `Init` ve ana döngü gibi kurulur ve `Opt_Finalize` ile bitirilir. `Quiet = True` olmadan `Close` mesaj kutusunda bekler.
+- Test programının stdout'u `<model>.out` adıyla yazılmamalıdır. ETABS'in analiz dosyası `<model>.OUT` onun üzerine yazar (Windows büyük/küçük harf ayırmaz).

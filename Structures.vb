@@ -218,6 +218,8 @@ Public Class FramePointStoryGroupStructures_
         Public DesignSecName As String
         Public DesignSecID As Integer
         Public IsComposite As Boolean       'encased composite column group (designed by CompositeColumn.vb)
+        Public CompositeStrength As Double  'composite group: strength ratio (PMM / shear) only; PMMRatio also includes detailing
+        Public CompositeDetailing As Double 'composite group: detailing ratio (As >= 1 % Ag, rho_sr >= 0.4 %)
     End Structure
 
     Public Structure LoadCaseDisp_
@@ -281,7 +283,15 @@ Public Class MiscellaneousStructures
         Public DriftComboMode As DriftComboMode_
         Public Seed As Integer              'random seed of the run
         Public CompositeCode As CompositeCode_  'edition of the composite column check (old backups: 360-16)
+        Public RepairMode As RepairMode_        'old backups: sequential (one re-analysis per repair step)
+        Public UseCache As Boolean              'reuse the result of a design vector evaluated before
+        Public SkipUnusedCases As Boolean       'do not run analysis cases that no design/drift check uses
     End Structure
+
+    Public Enum RepairMode_
+        Sequential = 0      'drift (F2) -> re-analysis -> top drift (F4) -> re-analysis -> PMM (G2) -> re-analysis
+        Combined = 1        'all repair steps from one analysis, one re-analysis
+    End Enum
 
     Public Enum DriftComboMode_
         AllCasesAndCombos = 0
