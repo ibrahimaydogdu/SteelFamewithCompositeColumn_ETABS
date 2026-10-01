@@ -59,18 +59,28 @@ Partial Class MainForm
         Me.SeedBox = New System.Windows.Forms.TextBox()
         Me.Label26 = New System.Windows.Forms.Label()
         Me.CompositeCodeBox = New System.Windows.Forms.ComboBox()
-        Me.SkipCases = New System.Windows.Forms.CheckBox()
-        Me.GroupBox9 = New System.Windows.Forms.GroupBox()
-        Me.Label28 = New System.Windows.Forms.Label()
-        Me.RepairModeBox = New System.Windows.Forms.ComboBox()
-        Me.ResultCache = New System.Windows.Forms.CheckBox()
-        Me.Label29 = New System.Windows.Forms.Label()
-        Me.BestCostBox = New System.Windows.Forms.TextBox()
-        Me.Label30 = New System.Windows.Forms.Label()
-        Me.ElapsedBox = New System.Windows.Forms.TextBox()
-        Me.Label31 = New System.Windows.Forms.Label()
-        Me.RemainingBox = New System.Windows.Forms.TextBox()
-        Me.ProgressBar1 = New System.Windows.Forms.ProgressBar()
+        Me.SkipCases = New System.Windows.Forms.CheckBox()
+        Me.GroupBox9 = New System.Windows.Forms.GroupBox()
+        Me.Label28 = New System.Windows.Forms.Label()
+        Me.RepairModeBox = New System.Windows.Forms.ComboBox()
+        Me.ResultCache = New System.Windows.Forms.CheckBox()
+        Me.Label29 = New System.Windows.Forms.Label()
+        Me.BestCostBox = New System.Windows.Forms.TextBox()
+        Me.Label30 = New System.Windows.Forms.Label()
+        Me.ElapsedBox = New System.Windows.Forms.TextBox()
+        Me.Label31 = New System.Windows.Forms.Label()
+        Me.RemainingBox = New System.Windows.Forms.TextBox()
+        Me.ProgressBar1 = New System.Windows.Forms.ProgressBar()
+        Me.GroupBox10 = New System.Windows.Forms.GroupBox()
+        Me.Label36 = New System.Windows.Forms.Label()
+        Me.Label32 = New System.Windows.Forms.Label()
+        Me.CostSteelBox = New System.Windows.Forms.TextBox()
+        Me.Label33 = New System.Windows.Forms.Label()
+        Me.CostRebarBox = New System.Windows.Forms.TextBox()
+        Me.Label34 = New System.Windows.Forms.Label()
+        Me.CostConcreteBox = New System.Windows.Forms.TextBox()
+        Me.Label35 = New System.Windows.Forms.Label()
+        Me.CostFormworkBox = New System.Windows.Forms.TextBox()
         Me.Label20 = New System.Windows.Forms.Label()
         Me.Dcode_Steel = New System.Windows.Forms.ComboBox()
         Me.NofJoint = New System.Windows.Forms.TextBox()
@@ -356,13 +366,13 @@ Partial Class MainForm
         Me.TabPage1.Controls.Add(Me.ListBox2)
         Me.TabPage1.Controls.Add(Me.ListBox1)
         Me.TabPage1.Controls.Add(Me.label38)
-        Me.TabPage1.Controls.Add(Me.Label29)
-        Me.TabPage1.Controls.Add(Me.BestCostBox)
-        Me.TabPage1.Controls.Add(Me.Label30)
-        Me.TabPage1.Controls.Add(Me.ElapsedBox)
-        Me.TabPage1.Controls.Add(Me.Label31)
-        Me.TabPage1.Controls.Add(Me.RemainingBox)
-        Me.TabPage1.Controls.Add(Me.ProgressBar1)
+        Me.TabPage1.Controls.Add(Me.Label29)
+        Me.TabPage1.Controls.Add(Me.BestCostBox)
+        Me.TabPage1.Controls.Add(Me.Label30)
+        Me.TabPage1.Controls.Add(Me.ElapsedBox)
+        Me.TabPage1.Controls.Add(Me.Label31)
+        Me.TabPage1.Controls.Add(Me.RemainingBox)
+        Me.TabPage1.Controls.Add(Me.ProgressBar1)
         Me.TabPage1.Controls.Add(Me.TextBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox6)
@@ -419,6 +429,7 @@ Partial Class MainForm
         '
         Me.TabPage2.Controls.Add(Me.GroupBox5)
         Me.TabPage2.Controls.Add(Me.GroupBox8)
+        Me.TabPage2.Controls.Add(Me.GroupBox10)
         Me.TabPage2.Location = New System.Drawing.Point(4, 25)
         Me.TabPage2.Margin = New System.Windows.Forms.Padding(4)
         Me.TabPage2.Name = "TabPage2"
@@ -1162,6 +1173,100 @@ Partial Class MainForm
         Me.ResultCache.Text = "Reuse results of repeated designs"
         Me.ResultCache.UseVisualStyleBackColor = True
         '
+        'GroupBox10
+        '
+        Me.GroupBox10.Controls.Add(Me.Label32)
+        Me.GroupBox10.Controls.Add(Me.CostSteelBox)
+        Me.GroupBox10.Controls.Add(Me.Label33)
+        Me.GroupBox10.Controls.Add(Me.CostRebarBox)
+        Me.GroupBox10.Controls.Add(Me.Label34)
+        Me.GroupBox10.Controls.Add(Me.CostConcreteBox)
+        Me.GroupBox10.Controls.Add(Me.Label35)
+        Me.GroupBox10.Controls.Add(Me.CostFormworkBox)
+        Me.GroupBox10.Controls.Add(Me.Label36)
+        Me.GroupBox10.Location = New System.Drawing.Point(275, 226)
+        Me.GroupBox10.Name = "GroupBox10"
+        Me.GroupBox10.Size = New System.Drawing.Size(400, 200)
+        Me.GroupBox10.TabIndex = 27
+        Me.GroupBox10.TabStop = False
+        Me.GroupBox10.Text = "Composite Cost (relative unit prices)"
+        '
+        'Label32
+        '
+        Me.Label32.AutoSize = True
+        Me.Label32.Location = New System.Drawing.Point(8, 30)
+        Me.Label32.Name = "Label32"
+        Me.Label32.Size = New System.Drawing.Size(130, 16)
+        Me.Label32.TabIndex = 0
+        Me.Label32.Text = "Steel (per kN)"
+        '
+        'CostSteelBox
+        '
+        Me.CostSteelBox.Location = New System.Drawing.Point(180, 26)
+        Me.CostSteelBox.Name = "CostSteelBox"
+        Me.CostSteelBox.Size = New System.Drawing.Size(100, 22)
+        Me.CostSteelBox.TabIndex = 1
+        Me.CostSteelBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
+        '
+        'Label33
+        '
+        Me.Label33.AutoSize = True
+        Me.Label33.Location = New System.Drawing.Point(8, 60)
+        Me.Label33.Name = "Label33"
+        Me.Label33.Size = New System.Drawing.Size(130, 16)
+        Me.Label33.TabIndex = 2
+        Me.Label33.Text = "Rebar (per kN)"
+        '
+        'CostRebarBox
+        '
+        Me.CostRebarBox.Location = New System.Drawing.Point(180, 56)
+        Me.CostRebarBox.Name = "CostRebarBox"
+        Me.CostRebarBox.Size = New System.Drawing.Size(100, 22)
+        Me.CostRebarBox.TabIndex = 3
+        Me.CostRebarBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
+        '
+        'Label34
+        '
+        Me.Label34.AutoSize = True
+        Me.Label34.Location = New System.Drawing.Point(8, 90)
+        Me.Label34.Name = "Label34"
+        Me.Label34.Size = New System.Drawing.Size(130, 16)
+        Me.Label34.TabIndex = 4
+        Me.Label34.Text = "Concrete (per m3)"
+        '
+        'CostConcreteBox
+        '
+        Me.CostConcreteBox.Location = New System.Drawing.Point(180, 86)
+        Me.CostConcreteBox.Name = "CostConcreteBox"
+        Me.CostConcreteBox.Size = New System.Drawing.Size(100, 22)
+        Me.CostConcreteBox.TabIndex = 5
+        Me.CostConcreteBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
+        '
+        'Label35
+        '
+        Me.Label35.AutoSize = True
+        Me.Label35.Location = New System.Drawing.Point(8, 120)
+        Me.Label35.Name = "Label35"
+        Me.Label35.Size = New System.Drawing.Size(130, 16)
+        Me.Label35.TabIndex = 6
+        Me.Label35.Text = "Formwork (per m2)"
+        '
+        'CostFormworkBox
+        '
+        Me.CostFormworkBox.Location = New System.Drawing.Point(180, 116)
+        Me.CostFormworkBox.Name = "CostFormworkBox"
+        Me.CostFormworkBox.Size = New System.Drawing.Size(100, 22)
+        Me.CostFormworkBox.TabIndex = 7
+        Me.CostFormworkBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
+        '
+        'Label36
+        '
+        Me.Label36.Location = New System.Drawing.Point(8, 148)
+        Me.Label36.Name = "Label36"
+        Me.Label36.Size = New System.Drawing.Size(385, 44)
+        Me.Label36.TabIndex = 8
+        Me.Label36.Text = "Defaults from EncasedSections.xml are placeholders: enter the price ratios of your study."
+        '
         'MainForm
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(8.0!, 16.0!)
@@ -1277,16 +1382,26 @@ Partial Class MainForm
     Friend WithEvents SeedBox As TextBox
     Friend WithEvents Label26 As Label
     Friend WithEvents CompositeCodeBox As ComboBox
-    Friend WithEvents SkipCases As CheckBox
-    Friend WithEvents GroupBox9 As GroupBox
-    Friend WithEvents Label28 As Label
-    Friend WithEvents RepairModeBox As ComboBox
-    Friend WithEvents ResultCache As CheckBox
-    Friend WithEvents Label29 As Label
-    Friend WithEvents BestCostBox As TextBox
-    Friend WithEvents Label30 As Label
-    Friend WithEvents ElapsedBox As TextBox
-    Friend WithEvents Label31 As Label
-    Friend WithEvents RemainingBox As TextBox
-    Friend WithEvents ProgressBar1 As ProgressBar
+    Friend WithEvents SkipCases As CheckBox
+    Friend WithEvents GroupBox9 As GroupBox
+    Friend WithEvents Label28 As Label
+    Friend WithEvents RepairModeBox As ComboBox
+    Friend WithEvents ResultCache As CheckBox
+    Friend WithEvents Label29 As Label
+    Friend WithEvents BestCostBox As TextBox
+    Friend WithEvents Label30 As Label
+    Friend WithEvents ElapsedBox As TextBox
+    Friend WithEvents Label31 As Label
+    Friend WithEvents RemainingBox As TextBox
+    Friend WithEvents ProgressBar1 As ProgressBar
+    Friend WithEvents GroupBox10 As GroupBox
+    Friend WithEvents Label36 As Label
+    Friend WithEvents Label32 As Label
+    Friend WithEvents CostSteelBox As TextBox
+    Friend WithEvents Label33 As Label
+    Friend WithEvents CostRebarBox As TextBox
+    Friend WithEvents Label34 As Label
+    Friend WithEvents CostConcreteBox As TextBox
+    Friend WithEvents Label35 As Label
+    Friend WithEvents CostFormworkBox As TextBox
 End Class

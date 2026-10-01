@@ -18,6 +18,14 @@ Public Enum CompositeCode_
     AISC360_22 = 1
 End Enum
 
+'Nominal flexural strength of encased sections (AISC I3.3(c)): plastic stress distribution or strain compatibility.
+'Strain compatibility agrees with the ETABS 22 composite column design (PMM within about 2 %, 525M model);
+'the plastic stress distribution gave a minor-axis Mn about 19 % above ETABS.
+Public Enum FlexureMethod_
+    PlasticStress = 0
+    StrainCompatibility = 1
+End Enum
+
 Public Enum CompositeClass_
     Compact = 0
     Noncompact = 1
@@ -68,6 +76,7 @@ Public MustInherit Class CompositeSection
     Public Const PHI_TOR As Double = 0.9
     Protected Const STRIPS As Integer = 1000
     Protected Const KSI As Double = 145.0377        'ksi per kN/mm²
+    Protected Const ECU As Double = 0.003           'concrete crushing strain (strain compatibility)
 
     Public Name As String
     Public Mat As CompositeMaterial_
@@ -156,6 +165,29 @@ Public MustInherit Class CompositeSection
         Dim M As Double = 0
         For Each f In fb
             M += Stress(f, f.Pos > y) * f.Area * f.Pos
+        Next
+        Return M
+    End Function
+
+    'Strain compatibility method (AISC I1.2b), pure bending: linear strain, eps_cu = 0.003 at the extreme compression
+    'fiber, concrete Whitney block 0.85 f'c over beta1 c (ACI 318), steel and bars elastic - perfectly plastic.
+    Public Function StrainCompatibilityMoment(ByVal axis As BendingAxis_) As Double
+        Dim fb As List(Of Fiber_) = Fibers(axis)
+        Dim yt As Double = 0.5 * Extent(axis)
+        Dim fcMPa As Double = Mat.fc * 1000
+        Dim beta1 As Double = Math.Min(Math.Max(0.85 - 0.05 * (fcMPa - 28) / 7, 0.65), 0.85)
+        Dim Stress = Function(f As Fiber_, yNA As Double) As Double
+                         Dim c As Double = yt - yNA
+                         If f.Kind = FiberKind_.Concrete Then Return If(f.Pos >= yt - beta1 * c, 0.85 * Mat.fc, 0)
+                         Dim eps As Double = ECU * (f.Pos - yNA) / c
+                         If f.Kind = FiberKind_.Rebar Then Return Math.Max(-Mat.Fysr, Math.Min(Mat.Fysr, Mat.Esr * eps))
+                         Return Math.Max(-Mat.Fy, Math.Min(Mat.Fy, Mat.Es * eps))
+                     End Function
+        'axial force decreases when the neutral axis moves up
+        Dim y As Double = Bisect(Function(yNA) fb.Sum(Function(f) Stress(f, yNA) * f.Area), -yt + 0.000001, yt - 0.000001)
+        Dim M As Double = 0
+        For Each f In fb
+            M += Stress(f, y) * f.Area * f.Pos
         Next
         Return M
     End Function
@@ -383,9 +415,16 @@ Public Class EncasedIShape
     Protected Overrides Function StiffnessCoefficient() As Double
         Return Math.Min(0.25 + 3 * (SteelArea + RebarArea) / GrossArea, 0.7)
     End Function
-    'I3.3(c): plastic stress distribution
+    'I3.3(c): plastic stress distribution or strain compatibility on the composite section
+    Public FlexureMethod As FlexureMethod_ = FlexureMethod_.PlasticStress
+    Private ReadOnly MnCache As New Dictionary(Of BendingAxis_, Double)
     Public Overrides Function NominalFlexure(axis As BendingAxis_) As Double
-        Return PlasticMoment(axis)
+        Dim Mn As Double
+        If Not MnCache.TryGetValue(axis, Mn) Then
+            Mn = If(FlexureMethod = FlexureMethod_.StrainCompatibility, StrainCompatibilityMoment(axis), PlasticMoment(axis))
+            MnCache(axis) = Mn
+        End If
+        Return Mn
     End Function
     'I4.1(b)(a): steel section alone, Chapter G (same in 360-16 and 360-22)
     Public Overrides Function DesignShear(axis As BendingAxis_, Optional Mr As Double = 0, Optional Vr As Double = 0) As Double
@@ -836,6 +875,7 @@ Public Class EncasedSettings_
     Public RebarDiameter As Double = 20             '[mm]
     Public TieDiameter As Double = 10               '[mm] ties of the ETABS encased section (clear cover = RebarCover - tie - bar/2)
     Public TieSpacing As Double = 150               '[mm]
+    Public FlexureMethod As FlexureMethod_ = FlexureMethod_.StrainCompatibility    'Mn of the encased sections
     Public MinBarsPerFace As Integer = 2            '2 = corner bars only
     Public MaxBarsPerFace As Integer = 6
     Public DimensionRounding As Double = 50         '[mm]
@@ -849,6 +889,19 @@ Public Class EncasedSettings_
     Public RebarUnitCost As Double = 0.8            'per kN of reinforcement
     Public ConcreteUnitCost As Double = 0.8         'per m³ of concrete
     Public FormworkUnitCost As Double = 0.2         'per m² of formwork (column perimeter)
+
+    Public Shared Function DefaultPath() As String
+        Return IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EncasedSections.xml")
+    End Function
+
+    'Settings of the file next to the program, defaults if it is missing or unreadable (form defaults)
+    Public Shared Function LoadOrDefault() As EncasedSettings_
+        Try
+            If IO.File.Exists(DefaultPath()) Then Return Load(DefaultPath())
+        Catch
+        End Try
+        Return New EncasedSettings_()
+    End Function
 
     Public Shared Function Load(ByVal FilePath As String) As EncasedSettings_
         Dim serializer As New XmlSerializer(GetType(EncasedSettings_))
@@ -871,6 +924,7 @@ Public Class EncasedSettings_
             Sec = New EncasedIShape(W, H, B, RebarDiameter, BarLayout(H, B, n), Mat)
             If Sec.RebarArea / Sec.GrossArea >= 0.004 Then Exit For
         Next
+        Sec.FlexureMethod = FlexureMethod
         Return Sec
     End Function
 

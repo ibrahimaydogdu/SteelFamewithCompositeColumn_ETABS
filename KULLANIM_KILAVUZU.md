@@ -92,9 +92,29 @@ Her W kesiti için bir gömülü kesit üretilir:
 - H = d + 2·`ConcreteCover`, B = bf + 2·`ConcreteCover`; `DimensionRounding` değerine yukarı yuvarlanır, en az `MinDimension`.
 - Donatı çevreye dizilir. Yüz başına çubuk sayısı `MinBarsPerFace` değerinden başlar ve ρsr ≥ %0,4 olana kadar (en fazla `MaxBarsPerFace`) artırılır. Çap `RebarDiameter`, pas payı (çubuk merkezine) `RebarCover`.
 - `K22`, `K33`: burkulma boyu katsayıları. `B2`: yanal ötelemeli çerçeve büyütme katsayısı.
-- `SteelUnitCost` (kN), `RebarUnitCost` (kN), `ConcreteUnitCost` (m³), `FormworkUnitCost` (m²): amaç fonksiyonundaki **göreli** birim maliyetlerdir.
+- `SteelUnitCost` (kN), `RebarUnitCost` (kN), `ConcreteUnitCost` (m³), `FormworkUnitCost` (m²): amaç fonksiyonundaki **göreli** birim maliyetlerin varsayılan değerleri.
+- `FlexureMethod`: gömülü kesitte eğilme dayanımı yöntemi.
+  - `StrainCompatibility` (varsayılan, AISC I1.2b): ETABS kompozit kolon tasarımıyla uyumlu.
+  - `PlasticStress` (I1.2a): önceki yöntem. Zayıf eksende yaklaşık %19 yüksek Mn veriyordu.
+- `TieDiameter`, `TieSpacing`: ETABS ile doğrulamada gömülü kesitin etriyeleri.
 
-> **Dikkat:** Varsayılan birim maliyetler yalnızca yer tutucudur. Çalışmanıza uygun fiyat oranlarını girin; optimum çözüm bu oranlara doğrudan bağlıdır.
+### Birim maliyetler (kullanıcı paneli)
+Birim maliyetler formda girilir: **Structural Properties** sekmesi → **Composite Cost (relative unit prices)** grubu.
+
+| Alan | Birim | Varsayılan |
+|---|---|---|
+| *Steel* | kN çelik başına | 1 |
+| *Rebar* | kN donatı başına | 0,8 |
+| *Concrete* | m³ beton başına | 0,8 |
+| *Formwork* | m² kalıp başına (kolon çevresi × boy) | 0,2 |
+
+- Form açılırken alanlar `EncasedSections.xml` dosyasındaki değerlerle dolar. Koşuda formdaki değerler kullanılır ve `ErrorLog.txt` dosyasına `Info: unit costs (form) …` satırıyla yazılır.
+- Değerler göreli olmalıdır; birimleri ve oranları çalışmanızın fiyatlarından türetin. Örneğin çelik 1 alınırsa diğerleri çeliğe oranla verilir.
+- Değerler negatif olamaz ve en az biri sıfırdan büyük olmalıdır; aksi hâlde form uyarı verir.
+- Değerler yedeğe (`BackUp.xml`) kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
+- Amaç fonksiyonu: çelik modunda yalnızca çelik ağırlığı (kN). Kompozit modda çelik·*Steel* + donatı·*Rebar* + beton hacmi·*Concrete* + kalıp alanı·*Formwork*.
+
+> **Dikkat:** Varsayılan birim maliyetler yalnızca yer tutucudur. Koşudan önce çalışmanıza uygun fiyat oranlarını formda girin; optimum çözüm bu oranlara doğrudan bağlıdır.
 
 Kontrol edilenler (AISC 360-16 / 360-22, LRFD; gömülü kesitte iki sürüm aynıdır):
 - Eksenel basınç / çekme (I2)
@@ -113,7 +133,7 @@ Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğü
   - `.check.xml`
 - `_best.EDB` gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
 - Bu adım tüm kolonlar için birkaç dakika sürer (525M: yaklaşık 3 dakika).
-- **Dikkat:** 525M modelinde ETABS oranları iç çözücüden %1–28 yüksek çıktı. Final kontrolünde ETABS oranının 1'i aşıp aşmadığına bakın.
+- **Dikkat:** 525M modelinde, şekil değiştirme uyumu yöntemiyle, ETABS oranları iç çözücüden %2–14 yüksek çıktı (oranı 1'e yakın kolonlarda yaklaşık %2). Final kontrolünde ETABS oranının 1'i aşıp aşmadığına bakın.
 
 Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.
 

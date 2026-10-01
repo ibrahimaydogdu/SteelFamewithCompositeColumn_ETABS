@@ -286,6 +286,20 @@ Public Class MiscellaneousStructures
         Public RepairMode As RepairMode_        'old backups: sequential (one re-analysis per repair step)
         Public UseCache As Boolean              'reuse the result of a design vector evaluated before
         Public SkipUnusedCases As Boolean       'do not run analysis cases that no design/drift check uses
+        Public Costs As UnitCosts_              'relative unit costs of the composite objective (all 0 = EncasedSections.xml)
+    End Structure
+
+    'Relative unit costs (composite mode): steel and rebar per kN, concrete per m³, formwork per m²
+    Public Structure UnitCosts_
+        Public Steel As Double
+        Public Rebar As Double
+        Public Concrete As Double
+        Public Formwork As Double
+        Public ReadOnly Property IsSet As Boolean
+            Get
+                Return Steel > 0 OrElse Rebar > 0 OrElse Concrete > 0 OrElse Formwork > 0
+            End Get
+        End Property
     End Structure
 
     Public Enum RepairMode_

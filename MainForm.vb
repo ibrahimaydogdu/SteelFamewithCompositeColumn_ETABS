@@ -16,6 +16,12 @@ Public Class MainForm
         If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = 0
         If CompositeCodeBox.SelectedIndex < 0 Then CompositeCodeBox.SelectedIndex = CompositeCode_.AISC360_22
         If RepairModeBox.SelectedIndex < 0 Then RepairModeBox.SelectedIndex = MiscellaneousStructures.RepairMode_.Combined
+        'unit costs: defaults of EncasedSections.xml (placeholders), edited by the user
+        Dim Defaults As EncasedSettings_ = EncasedSettings_.LoadOrDefault()
+        CostSteelBox.Text = Defaults.SteelUnitCost.ToString()
+        CostRebarBox.Text = Defaults.RebarUnitCost.ToString()
+        CostConcreteBox.Text = Defaults.ConcreteUnitCost.ToString()
+        CostFormworkBox.Text = Defaults.FormworkUnitCost.ToString()
     End Sub
 
     'VB Rnd: Rnd(-1) followed by Randomize(seed) gives a repeatable sequence for the seed
@@ -154,6 +160,13 @@ Public Class MainForm
                 MsgBox("Design Code Steel is not defined correctly")
                 Durdur = True
             End If
+            If CompositeColumns.Checked Then
+                Dim CostBoxes() As TextBox = {CostSteelBox, CostRebarBox, CostConcreteBox, CostFormworkBox}
+                If CostBoxes.Any(Function(b) Not IsValidNumber(b.Text) OrElse CDbl(b.Text) < 0) OrElse CostBoxes.All(Function(b) ToDbl(b.Text) = 0) Then
+                    MsgBox("Composite unit costs must be non-negative numbers, at least one of them positive")
+                    Durdur = True
+                End If
+            End If
         End If
         '___________________________________________________________________________________________
         'Control Optimization Parameters
@@ -198,6 +211,8 @@ Public Class MainForm
         FormInfo.RepairMode = Math.Max(RepairModeBox.SelectedIndex, 0)
         FormInfo.UseCache = ResultCache.Checked
         FormInfo.SkipUnusedCases = SkipCases.Checked
+        FormInfo.Costs = New MiscellaneousStructures.UnitCosts_ With {.Steel = ToDbl(CostSteelBox.Text), .Rebar = ToDbl(CostRebarBox.Text),
+                                                                      .Concrete = ToDbl(CostConcreteBox.Text), .Formwork = ToDbl(CostFormworkBox.Text)}
         FormInfo.AutoCombos = AutoCombos.Checked
         FormInfo.DriftComboMode = Math.Max(DriftCombos.SelectedIndex, 0)
         Dim Seed As Integer = CInt(ToDbl(SeedBox.Text))
@@ -232,6 +247,12 @@ Public Class MainForm
         RepairModeBox.SelectedIndex = FormInfo.RepairMode
         ResultCache.Checked = FormInfo.UseCache
         SkipCases.Checked = FormInfo.SkipUnusedCases
+        If FormInfo.Costs.IsSet Then        'old backups: keep the file defaults shown at start
+            CostSteelBox.Text = FormInfo.Costs.Steel.ToString()
+            CostRebarBox.Text = FormInfo.Costs.Rebar.ToString()
+            CostConcreteBox.Text = FormInfo.Costs.Concrete.ToString()
+            CostFormworkBox.Text = FormInfo.Costs.Formwork.ToString()
+        End If
         AutoCombos.Checked = FormInfo.AutoCombos
         DriftCombos.SelectedIndex = FormInfo.DriftComboMode
         SeedBox.Text = FormInfo.Seed

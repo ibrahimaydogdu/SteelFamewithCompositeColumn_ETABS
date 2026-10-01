@@ -1593,9 +1593,19 @@ Public Class ETABS_Class
     'Composite columns: settings, materials, sections
 
     Private Function InitilizeCompositeSettings() As Integer
-        Dim filePath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EncasedSections.xml")
+        Dim filePath As String = EncasedSettings_.DefaultPath()
         Try
             CompositeSettings = If(File.Exists(filePath), EncasedSettings_.Load(filePath), New EncasedSettings_())
+            'unit costs of the form (MainForm) replace those of the file; old backups have none
+            If FormInfo.Costs.IsSet Then
+                CompositeSettings.SteelUnitCost = FormInfo.Costs.Steel
+                CompositeSettings.RebarUnitCost = FormInfo.Costs.Rebar
+                CompositeSettings.ConcreteUnitCost = FormInfo.Costs.Concrete
+                CompositeSettings.FormworkUnitCost = FormInfo.Costs.Formwork
+            End If
+            Errorlogprint("Info: unit costs (" & If(FormInfo.Costs.IsSet, "form", "EncasedSections.xml") & "): steel " & CompositeSettings.SteelUnitCost &
+                          " /kN, rebar " & CompositeSettings.RebarUnitCost & " /kN, concrete " & CompositeSettings.ConcreteUnitCost &
+                          " /m3, formwork " & CompositeSettings.FormworkUnitCost & " /m2")
             Return 0
         Catch ex As Exception
             Errorlogprint("Problem occurred while reading " & filePath & ": " & ex.Message)

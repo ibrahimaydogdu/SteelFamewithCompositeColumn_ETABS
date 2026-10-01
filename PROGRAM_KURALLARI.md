@@ -116,6 +116,8 @@ Kurallar:
 - Rehber (`AISC360_16_…md`, `AISC360_22_…md`) ile AISC metni çelişirse yönetmelik esas alınır ve fark `DEGISIKLIKLER.md` dosyasına yazılır.
   - 360-22 metni elde değildir. Rehberden alınıp doğrulanamayan noktalar DEGISIKLIKLER.md'de "doğrulanmalı" olarak işaretlidir.
 - Formüllerde değişiklik yapıldıktan sonra doğrulama testi tekrarlanmalıdır: gömülü W10x45 PSDM ile kapalı form arasındaki fark %1'in altında kalmalıdır (bkz. DEGISIKLIKLER.md).
+- Gömülü kesitte Mn, `FlexureMethod` ile seçilir: `StrainCompatibility` (varsayılan) veya `PlasticStress`. `EncasedSettings_.Build` bu değeri kesite atar. `Transformed()` içindeki plastik modül (General section) PSDM ile kalır. Bu değer ETABS'te kullanılmaz; kesit 'No Design' durumundadır.
+- ETABS ile karşılaştırma yöntemi: `GetOverwrite` ile ETABS'in Cm, B1, φPn, φPnt değerleri okunur; eğilme kapasitesi `Composite Column Summary` tablosundaki oranlardan geri hesaplanır (DEGISIKLIKLER.md, Aşama 7).
 - Regresyon testi: aynı kesit ve kuvvet setinde 360-16 modu, git'teki önceki `CompositeColumn.vb` ile birebir aynı çıktıyı vermelidir. Fark yalnızca bilinçli düzeltmelerden kaynaklanabilir.
 
 ## 6. Algoritmalar

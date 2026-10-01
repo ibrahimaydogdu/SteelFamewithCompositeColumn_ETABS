@@ -16,6 +16,8 @@
   <!-- ties of the ETABS encased section (ETABS 20+); bar centre = RebarCover from the concrete face -->
   <TieDiameter>10</TieDiameter>
   <TieSpacing>150</TieSpacing>
+  <!-- Mn of the encased sections: StrainCompatibility (AISC I1.2b, agrees with ETABS) or PlasticStress (I1.2a) -->
+  <FlexureMethod>StrainCompatibility</FlexureMethod>
   <MinBarsPerFace>2</MinBarsPerFace>
   <MaxBarsPerFace>6</MaxBarsPerFace>
   <DimensionRounding>50</DimensionRounding>

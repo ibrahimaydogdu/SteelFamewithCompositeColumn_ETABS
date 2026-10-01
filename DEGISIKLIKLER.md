@@ -5,6 +5,46 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-01 — Aşama 7: Farkın kaynağı, eğilme yöntemi, birim maliyetler formda
+
+### İç çözücü ile ETABS arasındaki farkın kaynağı
+ETABS tasarımdan sonra kendi hesapladığı değerleri `DesignCompositeColumn.AISC360_22.GetOverwrite` ile veriyor. Aynı kesit (W360X110, 550×450, 8Ø20) ve aynı kuvvetlerle karşılaştırma:
+
+| Büyüklük | ETABS | İç çözücü |
+|---|---|---|
+| Cm (2 eksen) | 0,49152 / 0,34747 | aynı |
+| B1, B2 | 1 | 1 |
+| φPnt | 5310,6 | 5310,5 |
+| Güçlü eksen eğilme oranı | 0,499 | 0,497 |
+| φPn | 7992 kN (boy = 0,8266·L, net kolon boyu) | 7773 kN (L), %3 daha güvenli |
+| **Zayıf eksen Mn2** | **≈ 550.000 kN·mm** | **657.000 kN·mm (PSDM), %19 fazla** |
+
+- Farkın asıl kaynağı zayıf eksen eğilme dayanımı. PSDM'de I profilin tüm çeliği akmış kabul ediliyor; zayıf eksende bu doğru değil.
+- Çözüm: gömülü kesitlerde Mn için **şekil değiştirme uyumu yöntemi** (AISC I1.2b, I3.3(c)) eklendi ve varsayılan yapıldı.
+  - `CompositeSection.StrainCompatibilityMoment`: doğrusal şekil değiştirme, εcu = 0,003, Whitney bloğu 0,85·f'c·β1·c (ACI β1), çelik ve donatı elastik-tam plastik.
+  - Ayar: `EncasedSections.xml` > `FlexureMethod` (`StrainCompatibility` / `PlasticStress`).
+  - Aynı kesitte Mn3 = 1,040·10⁶ (ETABS 1,083·10⁶), Mn2 = 567.435 (ETABS ≈ 550.000).
+- **Uçtan uca final doğrulaması (10 grup):** fark %1,8–14'e indi (önce %7–28). Oranın 1'e yakın olduğu grupta (10) fark %1,8. En büyük fark oranı düşük grup 5'te (0,539'a karşı 0,627).
+  - İç çözücü hâlâ biraz güvensiz tarafta. Final ETABS kontrolü bu yüzden önemli.
+- Not: Optimizasyon sonuçları Aşama 6'ya göre değişir. Gömülü kolonların eğilme dayanımı düştü ve sonuç daha güvenli tarafta. Eski davranış için `FlexureMethod = PlasticStress`.
+
+### Modelle ilgili bulgu
+- 525M modelindeki nonlineer yük durumlarında ETABS çıktısı **"TYPE OF GEOMETRIC NONLINEARITY = NONE"** gösteriyor, yani P-Delta yok.
+- İç çözücü `B2 = 1` kabul ediyor; bu kabul P-Delta'lı analiz gerektirir (KULLANIM_KILAVUZU 2. bölüm).
+- Bu modelde ya P-Delta açılmalı ya da `EncasedSections.xml` içinde `B2` gerçekçi bir değere ayarlanmalı.
+
+### Birim maliyetler formda
+- Structural Properties sekmesine **Composite Cost (relative unit prices)** grubu eklendi: Steel /kN, Rebar /kN, Concrete /m³, Formwork /m².
+- Açılışta `EncasedSections.xml` değerleriyle doluyor. Değerler `FormInfo.Costs` (`UnitCosts_`) olarak yedeğe giriyor. Eski yedeklerde alan yok; o zaman XML değerleri kullanılıyor.
+- Doğrulama: değerler negatif olamaz, en az biri sıfırdan büyük olmalı.
+- Günlükte `Info: unit costs (form|EncasedSections.xml): …` satırı yazılıyor.
+- Fiyat değerleri değiştirilmedi; kullanıcı formda düzeltecek (kılavuzda anlatıldı).
+
+### Düzeltme
+- Aşama 5'teki GUI düzenleme betiği `MainForm.Designer.vb` dosyasına çift CR'li (`\r\r\n`) satır sonu yazmıştı. VB derleyicisi kabul ettiği için fark edilmemişti; Visual Studio'da fazladan boş satır ve satır sonu uyarısı çıkarırdı. Düzeltildi.
+
+---
+
 ## 2026-10-01 — Aşama 6: ETABS kompozit kolon tasarımıyla doğrulama
 
 **Soru:** iç kompozit çözücü, ETABS'te kompozit kolon API'si olmadığı için yazılmıştı. ETABS 22'de böyle bir API var mı?
