@@ -6,5 +6,13 @@
     ' StartupNextInstance: Raised when launching a single-instance application and the application is already active. 
     ' NetworkAvailabilityChanged: Raised when the network connection is connected or disconnected.
     Partial Friend Class MyApplication
+        'Last line of defence (exceptions outside Start_Click): log, close ETABS and remove the working folder
+        Private Sub MyApplication_UnhandledException(sender As Object, e As ApplicationServices.UnhandledExceptionEventArgs) Handles Me.UnhandledException
+            Dim F As Global.FrameSap2000.MainForm = TryCast(Me.MainForm, Global.FrameSap2000.MainForm)
+            If F IsNot Nothing AndAlso F.SAP2000Class IsNot Nothing Then
+                F.SAP2000Class.Errorlogprint("Unhandled exception: " & e.Exception.ToString())
+                F.SAP2000Class.Shutdown()
+            End If
+        End Sub
     End Class
 End Namespace

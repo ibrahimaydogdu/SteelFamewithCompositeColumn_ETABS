@@ -180,6 +180,7 @@ Public Class FramePointStoryGroupStructures_
         DiagonalXZ
         DiagonalYZ
         DiagonalXY
+        Other           '3D brace or zero length: no beam / column role
     End Enum
     Public Structure Area_
         Public AreaName As String
@@ -287,6 +288,8 @@ Public Class MiscellaneousStructures
         Public UseCache As Boolean              'reuse the result of a design vector evaluated before
         Public SkipUnusedCases As Boolean       'do not run analysis cases that no design/drift check uses
         Public Costs As UnitCosts_              'relative unit costs of the composite objective (all 0 = EncasedSections.xml)
+        Public SkipCtoC As Boolean              'no column-to-column geometric constraint (form: "Column to Column" unchecked)
+        Public SkipBtoC As Boolean              'no beam-to-column geometric constraint
     End Structure
 
     'Relative unit costs (composite mode): steel and rebar per kN, concrete per m³, formwork per m²
@@ -310,6 +313,7 @@ Public Class MiscellaneousStructures
     Public Enum DriftComboMode_
         AllCasesAndCombos = 0
         LateralOnly = 1
+        LateralCasesOnly = 2    'pure lateral load cases (wind / earthquake patterns only): service level, unfactored
     End Enum
 
     Public Structure FileList_
@@ -324,7 +328,6 @@ Public Class MiscellaneousStructures
         Public startDate As Date
     End Structure
     Public Structure FrameInfo_
-        Public DispLimit As Double
         Public TopStoryDriftR As Double
         Public InterStoryDriftR As Double
         Public SteelDesignCode As String

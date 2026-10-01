@@ -55,6 +55,10 @@ Evaluate(Member, applyRepair)
 ```
 - Sıralı modda bir değerlendirme en fazla 6 analiz ve 3 tasarım yapar; birleşik modda en fazla 2 analiz ve 2 tasarım. 525M modelinde süreler 68 s ve 26 s'dir.
 - İki mod aynı başlangıç vektöründen farklı sonuçlar üretir. Karşılaştırmalı çalışmalarda mod `FormInfo.RepairMode` ile sabitlenir ve sonuç XML'inin yedeğinde saklanır.
+- `SetAndAnalyze`, vektör `LastAnalysed` ile aynıysa analizi atlar. Modeli `SetAndAnalyze` dışında değiştiren her kod (çalışan durumlar, kesit dönüşümü, otomatik listeler) `InvalidateAnalysis()` çağırmalıdır.
+- Düzeltme fonksiyonları (`F2`/`F4`/`G2`) yalnızca vektör gerçekten değiştiyse `True` döndürür.
+- Geometri düzeltmesi (E1) değişkeni `[Lb, Ub]` içinde tutar (`NearestFeasible`).
+- Formdaki sayılar `TryNum` ile okunur (invariant culture, "," → "."). `IsNumeric` / `CDbl` kullanılmaz.
 - `E2` hangi kesitin atandığını `Assigned()` ile izler. Kesitler `E2` dışında atanırsa (otomatik listeler, `Initilize_UBLB`) `ForgetAssignedSections()` çağrılmalıdır.
 - `E3` artık `File.Save` çağırmaz: model `WorkFile` üzerinden açıldığı için `RunAnalysis` dosya yolunu bilir. Analiz ETABS süreci içinde çalıştırılır (`SetSolverOption_3`, process 1), bu analiz başına yaklaşık %10 kazandırır.
 - **Önbellek ve döngü sonu:** önbellek isabetleri analiz sayacını (`iter`) artırmaz. Ana döngü, art arda `MAX_STALL_LOOPS` (20) çevrimde yeni analiz yapılmazsa yakınsamış kabul edilip sonlanır.
@@ -135,7 +139,7 @@ Kurallar:
   - Çalışma klasörü `Shutdown` içinde (`Close` çağırır), ETABS kapandıktan sonra silinir. Silinemezse uyarı yazılır, koşu bozulmaz.
   - ETABS'i kapatan her yol `Close` veya `Shutdown` üzerinden geçmelidir; aksi halde geçici klasör kalır.
 - Çıktılar:
-  - `ErrorLog.txt` (model klasöründe; `Info` / `Warning` / hata satırları)
+  - `ErrorLog.txt` (model klasöründe). `Errorlogprint` mesajı `Info:` veya `Warning:` ile başlamıyorsa başına `Error:` ekler. Bilgi ve uyarı mesajları bu öneklerle yazılmalıdır.
   - `BackUp.xml` (çalışma klasöründe)
   - sonuç XML'i
   - `<model>_best.EDB` (girdi modelinin klasöründe)

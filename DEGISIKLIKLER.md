@@ -5,6 +5,70 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-01 — Aşama 8: Kod inceleme düzeltmeleri (KOD_INCELEME_RAPORU, Öncelik 1 ve 2)
+
+### Sonucu veya süreyi etkileyen hatalar
+1. **Boşa yeniden analiz yok.**
+   - `F2`, `F4` ve `G2` yalnızca bir değişken gerçekten değiştiğinde `True` döndürüyor. Adım 0'a yuvarlanırsa ya da değişken `Ub`'de kırpılırsa yeniden analiz yapılmıyor.
+   - `CombinedRepair` de vektörün değişip değişmediğine bakıyor.
+   - `SetAndAnalyze`, vektör son analizdekiyle (`LastAnalysed`) aynıysa analizi atlıyor (`Info: timing … SkippedAnalysis`).
+   - Model başka yoldan değişirse (çalışan durumlar, gömülü kesit dönüşümü) `InvalidateAnalysis` çağrılıyor.
+2. **Geometri düzeltmesi (E1) değişkenin `[Lb, Ub]` aralığında kalıyor.**
+   - Uygun kesitler arasından mevcut kesite en yakını seçiliyor; eşit uzaklıkta tohumlu rastgele seçim yapılıyor.
+   - Önce tüm kütüphaneden rastgele seçim yapılıyordu: kirişlere çoğu zaman çok hafif kesit geliyordu ve değer sınır dışına çıkıyordu.
+3. `VerifyCompositeWithETABS` ve `CreateEncasedSections`, kompozit grup ya da kesit yokken artık çökmüyor.
+4. **`Opt_Finalize`:** doğrulama ve kaydetme hataları ayrı tutuluyor. Biri başarısızsa "completed successfully" yazılmıyor ve `Close`, hata koduyla çağrılıyor.
+5. `Lb ≤ Ub` (ve `Ub ≥ 0`) garanti ediliyor; çok büyük tasarım oranında oluşan `IndexOutOfRange` önlendi.
+6. **f'c < 21 MPa artık 21 MPa'ya yükseltilmiyor** (güvensiz taraftı); gerçek değer kullanılıp uyarı yazılıyor. 69 MPa üst sınırı korunuyor.
+7. Kiriş, kolon veya düzlem çapraz olmayan (3B çapraz, sıfır boylu) çubuklar `FrameDirc_.Other` olarak işaretleniyor; artık X kirişi sayılmıyor.
+8. Başlangıç tasarımında otomatik kesit listeleri yalnızca **tasarım değişkeni olan gruplardaki** çubuklara atanıyor. Diğer çelik çubuklar modeldeki kesitini koruyor.
+9. **Form sayıları Windows dil ayarından bağımsız okunuyor** (`TryNum`): "." ve "," ondalık ayırıcı olarak kabul ediliyor. Önceden tr-TR Windows'ta "0.9" → 9 okunuyordu.
+   - Bellek ≥ 2 ve analiz sayısı ≥ 1 tam sayı olmalı.
+   - Öteleme oranları > 0 olmalı.
+10. **HS:** uyarlanabilir PAR/HMCR, belleğe gerçekten giren üyenin konumuna yazılıyor (`LastUpdatedID`).
+11. Final değerlendirmesi `GlobalBest`'in bir kopyasıyla yapılıyor. Sonuç `FinalCheck` olarak XML'e yazılıyor; ceza > 0 ise uyarı veriliyor.
+12. **Check Structure:** kesitler çıktı dosyasındaki **grup adlarıyla** eşleniyor. Grup bulunamazsa hata veriliyor; dosya yoksa da hata veriliyor.
+
+### Form ve çıktılar
+13. *Column to Column* / *Beam to Column* onay kutuları artık çalışıyor (`FormInfo.SkipCtoC` / `SkipBtoC`). Kısıt sayıları günlüğe yazılıyor. İşlevsiz *Discard warnings* kaldırıldı.
+14. Hiçbir hesapta kullanılmayan *Disp. Limit (mm)* kaldırıldı (`FrameInfo_.DispLimit` de). Eski yedeklerde bu alan yok sayılır.
+15. *Number of Joint / Members / Group / Section* kutuları modelden dolduruluyor ve salt okunur.
+16. `.check.xml` dosyasına `Penalty`, `Cost`, `AnalysisFailed` ve `GroupNames` eklendi; günlükte `Info: checked design …` satırı yazılıyor.
+17. **`ErrorLog.txt` biçimi:** "Error message:" öneki kaldırıldı. Satırlar `Info:`, `Warning:` veya `Error:` ile başlıyor.
+18. Saatler 24 saat biçiminde (`HH:mm:ss`).
+19. **`ETABS_Print`:**
+    - `PMM_Ratios` artık tasarım değişkeni sırasında ve `GroupNames` ile eşleşiyor (önce çelik, sonra kompozit sırasıyla karışıktı).
+    - `InterStoryDrift_Ratios` → `InterStoryDrifts`, `TopStoryDrift_Ratio` → `TopStoryDrifts` (değerler mm).
+20. **İstisna koruması:** `Start_Click` içinde Try/Catch ve `ApplicationEvents.UnhandledException` eklendi. İstisnada hata günlüğe yazılıyor, ETABS kapatılıyor, geçici klasör siliniyor.
+
+### Tam optimizasyon testi
+**Ayarlar:** 525M, ETABS 22.6, form varsayılanları. Harmony Search (HMCR 0,9 Adaptive, PAR 0,6 Dynamic, greedy-worst, Clear Duplicates), kompozit AISC 360-22, birleşik düzeltme, önbellek, SkipUnusedCases, CtoC/BtoC açık, öteleme "All cases and combos". Bellek 10, **150 analiz**, tohum 2026.
+
+| | |
+|---|---|
+| Süre | 38 dk. Başlangıç 128 s; değerlendirme 21 s (analiz 9,6 s, tasarım 1,9 s). |
+| Hata / uyarı | **Yok** |
+| Analizler | 151 analiz, 90 değerlendirme; 3 analiz atlandı (`SkippedAnalysis`) |
+| Önbellek | İsabet yok: 14 değişken × ~289 kesitte HS bu bütçede tasarım tekrarlamadı |
+| En iyi uygun maliyet | 16945 (2. analiz) → 8252 (35) → 8081 (43) → **7708,6** (79). Sonraki 70 analizde iyileşme yok. |
+| Final (düzeltmesiz, tüm durumlarla) | ceza 0 |
+| ETABS kompozit doğrulaması | 10 grubun hepsinde PMM < 1 (en büyük 0,708). İç dayanım oranı ETABS'in %2–9 altında. |
+| Temizlik | `_best.EDB`, sonuç XML'i yazıldı; geçici klasör silindi; arkada ETABS kalmadı |
+
+**Testte not edilen mantıksız noktalar ve düzeltmeler:**
+- **Sonuç dosyasında hangi kısıtın belirleyici olduğu görünmüyordu.**
+  - Kolonlar çok büyük (1300×600 içinde W1100X607), dayanım oranları ise yalnızca 0,25–0,71. Belirleyici büyük olasılıkla öteleme.
+  - Düzeltme: final analizinin kısıt özeti (`ConstraintSummary`) günlüğe (`Info: final design, …`) ve sonuç XML'ine (`FinalConstraints`) yazılıyor. İçerik: göreli ve tepe ötelemesi / sınır, en büyük çelik oranı, kompozit dayanım ve detay oranı, geometrik oranlar.
+- **Öteleme kontrolü katsayılı dayanım kombinasyonlarıyla yapılıyordu.** Hem "All cases and combos" hem "Lateral only" modu 1,2D + 1,6W gibi kombinasyonları kullanıyor. Öteleme sınırları normalde servis yükleri içindir; öteleme fazla tahmin ediliyor olabilir.
+  - Yeni mod: **"Lateral load cases only (service)"** (`DriftComboMode_.LateralCasesOnly`). Yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumları ve response spectrum durumlarını kullanıyor.
+  - 525M modelinde böyle bir durum yok; analizdeki durumların hepsi katsayılı NL kombinasyon durumları. Bu modu kullanmak için modele katsayısız rüzgâr durumları eklenmeli; yoksa program açık bir hata mesajıyla duruyor.
+- **Doğrulama koşuları:**
+  - Service modu 525M modelinde beklendiği gibi açık bir hatayla durdu.
+  - 8 analizlik kısa koşuda final özeti doğru yazıldı. Değerler: göreli öteleme 0,654, tepe ötelemesi 0,472, çelik oranı 0,250, kompozit dayanım 0,565, kompozit detay 0,963, kolon-kolon 1,000, kiriş-kolon 0,993.
+  - Bu kısa koşuda belirleyici olan öteleme değil; geometrik kısıtlar ve donatı oranı alt sınırı (ρsr ≥ %0,4).
+
+---
+
 ## 2026-10-01 — Aşama 7: Farkın kaynağı, eğilme yöntemi, birim maliyetler formda
 
 ### İç çözücü ile ETABS arasındaki farkın kaynağı

@@ -2,7 +2,7 @@
 
 Tüm kaynak dosyalar A'dan Z'ye incelendi: ETABSClass, OptimizationClass, MainForm (+Designer), Structures, CompositeColumn, ApplicationEvents.
 - Derleyici uyarıları da tarandı. Kullanılmayan yerel değişken uyarısı yok; 28 örtük tür dönüşümü uyarısı var.
-- **Henüz hiçbir madde düzeltilmedi.** Bu dosya düzeltilecek işlerin listesidir.
+- **Durum:** Öncelik 1 (madde 1–12) ve Öncelik 2 (madde 13–20) Aşama 8'de düzeltildi (DEGISIKLIKLER.md). Öncelik 3–5 açık.
 - ✔ = elle doğrulandı. Satır numaraları yaklaşıktır, dosyalar değiştikçe kayar.
 
 ## Öncelik 1: Sonucu veya ETABS süresini doğrudan etkileyen hatalar

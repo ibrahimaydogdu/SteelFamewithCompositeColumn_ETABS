@@ -86,7 +86,6 @@ Partial Class MainForm
         Me.NofJoint = New System.Windows.Forms.TextBox()
         Me.Label16 = New System.Windows.Forms.Label()
         Me.BtoC = New System.Windows.Forms.CheckBox()
-        Me.dwarn = New System.Windows.Forms.CheckBox()
         Me.CtoC = New System.Windows.Forms.CheckBox()
         Me.IS_LimitR = New System.Windows.Forms.TextBox()
         Me.TS_LimitR = New System.Windows.Forms.TextBox()
@@ -98,8 +97,6 @@ Partial Class MainForm
         Me.Label6 = New System.Windows.Forms.Label()
         Me.nofsection1 = New System.Windows.Forms.TextBox()
         Me.Label7 = New System.Windows.Forms.Label()
-        Me.displimit = New System.Windows.Forms.TextBox()
-        Me.Label3 = New System.Windows.Forms.Label()
         Me.TabPage3 = New System.Windows.Forms.TabPage()
         Me.GroupBox7 = New System.Windows.Forms.GroupBox()
         Me.Mutation_Rate = New System.Windows.Forms.TextBox()
@@ -492,7 +489,7 @@ Partial Class MainForm
         '
         Me.DriftCombos.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
         Me.DriftCombos.FormattingEnabled = True
-        Me.DriftCombos.Items.AddRange(New Object() {"All cases and combos", "Lateral (wind / earthquake) only"})
+        Me.DriftCombos.Items.AddRange(New Object() {"All cases and combos", "Lateral (wind / earthquake) only", "Lateral load cases only (service)"})
         Me.DriftCombos.Location = New System.Drawing.Point(180, 82)
         Me.DriftCombos.Name = "DriftCombos"
         Me.DriftCombos.Size = New System.Drawing.Size(210, 24)
@@ -542,7 +539,6 @@ Partial Class MainForm
         Me.GroupBox5.Controls.Add(Me.NofJoint)
         Me.GroupBox5.Controls.Add(Me.Label16)
         Me.GroupBox5.Controls.Add(Me.BtoC)
-        Me.GroupBox5.Controls.Add(Me.dwarn)
         Me.GroupBox5.Controls.Add(Me.CtoC)
         Me.GroupBox5.Controls.Add(Me.IS_LimitR)
         Me.GroupBox5.Controls.Add(Me.TS_LimitR)
@@ -554,8 +550,6 @@ Partial Class MainForm
         Me.GroupBox5.Controls.Add(Me.Label6)
         Me.GroupBox5.Controls.Add(Me.nofsection1)
         Me.GroupBox5.Controls.Add(Me.Label7)
-        Me.GroupBox5.Controls.Add(Me.displimit)
-        Me.GroupBox5.Controls.Add(Me.Label3)
         Me.GroupBox5.Location = New System.Drawing.Point(0, 0)
         Me.GroupBox5.Margin = New System.Windows.Forms.Padding(4)
         Me.GroupBox5.Name = "GroupBox5"
@@ -591,6 +585,7 @@ Partial Class MainForm
         Me.NofJoint.Location = New System.Drawing.Point(140, 21)
         Me.NofJoint.Margin = New System.Windows.Forms.Padding(4)
         Me.NofJoint.Name = "NofJoint"
+        Me.NofJoint.ReadOnly = True
         Me.NofJoint.Size = New System.Drawing.Size(65, 22)
         Me.NofJoint.TabIndex = 41
         Me.NofJoint.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
@@ -617,17 +612,6 @@ Partial Class MainForm
         Me.BtoC.TabIndex = 39
         Me.BtoC.Text = "Beam to Column"
         Me.BtoC.UseVisualStyleBackColor = True
-        '
-        'dwarn
-        '
-        Me.dwarn.AutoSize = True
-        Me.dwarn.Location = New System.Drawing.Point(0, 287)
-        Me.dwarn.Margin = New System.Windows.Forms.Padding(4)
-        Me.dwarn.Name = "dwarn"
-        Me.dwarn.Size = New System.Drawing.Size(129, 20)
-        Me.dwarn.TabIndex = 12
-        Me.dwarn.Text = "Discard warnings"
-        Me.dwarn.UseVisualStyleBackColor = True
         '
         'CtoC
         '
@@ -691,6 +675,7 @@ Partial Class MainForm
         Me.nofmember.Location = New System.Drawing.Point(140, 44)
         Me.nofmember.Margin = New System.Windows.Forms.Padding(4)
         Me.nofmember.Name = "nofmember"
+        Me.nofmember.ReadOnly = True
         Me.nofmember.Size = New System.Drawing.Size(65, 22)
         Me.nofmember.TabIndex = 31
         Me.nofmember.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
@@ -710,6 +695,7 @@ Partial Class MainForm
         Me.nofgroup.Location = New System.Drawing.Point(140, 69)
         Me.nofgroup.Margin = New System.Windows.Forms.Padding(4)
         Me.nofgroup.Name = "nofgroup"
+        Me.nofgroup.ReadOnly = True
         Me.nofgroup.Size = New System.Drawing.Size(65, 22)
         Me.nofgroup.TabIndex = 29
         Me.nofgroup.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
@@ -729,6 +715,7 @@ Partial Class MainForm
         Me.nofsection1.Location = New System.Drawing.Point(140, 94)
         Me.nofsection1.Margin = New System.Windows.Forms.Padding(4)
         Me.nofsection1.Name = "nofsection1"
+        Me.nofsection1.ReadOnly = True
         Me.nofsection1.Size = New System.Drawing.Size(65, 22)
         Me.nofsection1.TabIndex = 27
         Me.nofsection1.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
@@ -742,28 +729,6 @@ Partial Class MainForm
         Me.Label7.Size = New System.Drawing.Size(117, 16)
         Me.Label7.TabIndex = 26
         Me.Label7.Text = "Number of Section"
-        '
-        'displimit
-        '
-        Me.displimit.AcceptsReturn = True
-        Me.displimit.AcceptsTab = True
-        Me.displimit.Location = New System.Drawing.Point(140, 118)
-        Me.displimit.Margin = New System.Windows.Forms.Padding(4)
-        Me.displimit.Name = "displimit"
-        Me.displimit.Size = New System.Drawing.Size(65, 22)
-        Me.displimit.TabIndex = 25
-        Me.displimit.Text = "0.0636"
-        Me.displimit.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
-        '
-        'Label3
-        '
-        Me.Label3.AutoSize = True
-        Me.Label3.Location = New System.Drawing.Point(0, 127)
-        Me.Label3.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label3.Name = "Label3"
-        Me.Label3.Size = New System.Drawing.Size(101, 16)
-        Me.Label3.TabIndex = 24
-        Me.Label3.Text = "Disp. Limit (mm)"
         '
         'TabPage3
         '
@@ -1325,7 +1290,6 @@ Partial Class MainForm
     Friend WithEvents NofJoint As TextBox
     Friend WithEvents Label16 As Label
     Friend WithEvents BtoC As CheckBox
-    Friend WithEvents dwarn As CheckBox
     Friend WithEvents CtoC As CheckBox
     Friend WithEvents IS_LimitR As TextBox
     Friend WithEvents TS_LimitR As TextBox
@@ -1337,8 +1301,6 @@ Partial Class MainForm
     Friend WithEvents Label6 As Label
     Friend WithEvents nofsection1 As TextBox
     Friend WithEvents Label7 As Label
-    Friend WithEvents displimit As TextBox
-    Friend WithEvents Label3 As Label
     Friend WithEvents TabPage3 As TabPage
     Friend WithEvents GroupBox2 As GroupBox
     Friend WithEvents HMCR_val As TextBox

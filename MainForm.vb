@@ -18,10 +18,10 @@ Public Class MainForm
         If RepairModeBox.SelectedIndex < 0 Then RepairModeBox.SelectedIndex = MiscellaneousStructures.RepairMode_.Combined
         'unit costs: defaults of EncasedSections.xml (placeholders), edited by the user
         Dim Defaults As EncasedSettings_ = EncasedSettings_.LoadOrDefault()
-        CostSteelBox.Text = Defaults.SteelUnitCost.ToString()
-        CostRebarBox.Text = Defaults.RebarUnitCost.ToString()
-        CostConcreteBox.Text = Defaults.ConcreteUnitCost.ToString()
-        CostFormworkBox.Text = Defaults.FormworkUnitCost.ToString()
+        CostSteelBox.Text = Num(Defaults.SteelUnitCost)
+        CostRebarBox.Text = Num(Defaults.RebarUnitCost)
+        CostConcreteBox.Text = Num(Defaults.ConcreteUnitCost)
+        CostFormworkBox.Text = Num(Defaults.FormworkUnitCost)
     End Sub
 
     'VB Rnd: Rnd(-1) followed by Randomize(seed) gives a repeatable sequence for the seed
@@ -31,6 +31,16 @@ Public Class MainForm
         ETABS_Class.SetSeed(Seed)
     End Sub
     Private Sub Start_Click(sender As Object, e As EventArgs) Handles start.Click
+        Try
+            RunAll()
+        Catch ex As Exception
+            'an unexpected exception must not leave ETABS and the working folder behind
+            LogError("Unhandled exception: " & ex.ToString())
+            CloseETABS(-1)
+        End Try
+    End Sub
+
+    Private Sub RunAll()
         Dim ret As Integer = 0
         If CheckStructure.Checked = True Then
             Check_Structure(ret)
@@ -42,7 +52,7 @@ Public Class MainForm
         End If
         Init(ret)
         If ret <> 0 Then
-            LogError("Init")
+            LogError("Initialisation failed (see the previous messages)")
             CloseETABS(ret)
             Exit Sub
         End If
@@ -80,7 +90,7 @@ Public Class MainForm
             End If
         Loop
         OptClass.Opt_Finalize()
-        FinishTimeBox.Text = TimeOfDay.ToString("hh:mm:ss")
+        FinishTimeBox.Text = Date.Now.ToString("HH:mm:ss")
     End Sub
     Private Sub Opt_Main(ByRef ret As Integer)
         OptClass.Main(ID_mem, ret)
@@ -116,11 +126,26 @@ Public Class MainForm
         End Using
     End Sub
 
+    'Form numbers with "." or "," as decimal separator, independent of the Windows culture
+    '(with IsNumeric / CDbl a tr-TR Windows read "0.9" as 9 and "0.0636" as 636)
+    Private Shared Function TryNum(ByVal text As String, ByRef value As Double) As Boolean
+        If String.IsNullOrWhiteSpace(text) Then Return False
+        Return Double.TryParse(text.Trim().Replace(","c, "."c), Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture, value)
+    End Function
     Private Shared Function IsValidNumber(ByVal text As String) As Boolean
-        Return Not String.IsNullOrWhiteSpace(text) AndAlso IsNumeric(text)
+        Dim x As Double
+        Return TryNum(text, x)
     End Function
     Private Shared Function ToDbl(ByVal text As String) As Double
-        Return If(IsValidNumber(text), CDbl(text), 0)
+        Dim x As Double
+        Return If(TryNum(text, x), x, 0)
+    End Function
+    Private Shared Function IsWholeNumber(ByVal text As String, ByVal Minimum As Double) As Boolean
+        Dim x As Double
+        Return TryNum(text, x) AndAlso x >= Minimum AndAlso x = Math.Floor(x) AndAlso x <= Integer.MaxValue
+    End Function
+    Private Shared Function Num(ByVal x As Double) As String
+        Return x.ToString(Globalization.CultureInfo.InvariantCulture)
     End Function
 
     'Returns True if the form input is not valid
@@ -144,16 +169,12 @@ Public Class MainForm
         '______________________________________________________________________________________________
         'Control Frame Parameters
         If TestwithMath.Checked = False Then
-            If Not IsValidNumber(displimit.Text) Then
-                MsgBox("Displacement limit is not defined correctly")
+            If ToDbl(TS_LimitR.Text) <= 0 Then
+                MsgBox("Top story drift limit (H / ratio) must be a positive number")
                 Durdur = True
             End If
-            If Not IsValidNumber(TS_LimitR.Text) Then
-                MsgBox("Top Story limit is not defined correctly")
-                Durdur = True
-            End If
-            If Not IsValidNumber(IS_LimitR.Text) Then
-                MsgBox("Inter Story limit is not defined correctly")
+            If ToDbl(IS_LimitR.Text) <= 0 Then
+                MsgBox("Inter story drift limit (h / ratio) must be a positive number")
                 Durdur = True
             End If
             If String.IsNullOrWhiteSpace(Dcode_Steel.Text) Then
@@ -162,7 +183,7 @@ Public Class MainForm
             End If
             If CompositeColumns.Checked Then
                 Dim CostBoxes() As TextBox = {CostSteelBox, CostRebarBox, CostConcreteBox, CostFormworkBox}
-                If CostBoxes.Any(Function(b) Not IsValidNumber(b.Text) OrElse CDbl(b.Text) < 0) OrElse CostBoxes.All(Function(b) ToDbl(b.Text) = 0) Then
+                If CostBoxes.Any(Function(b) Not IsValidNumber(b.Text) OrElse ToDbl(b.Text) < 0) OrElse CostBoxes.All(Function(b) ToDbl(b.Text) = 0) Then
                     MsgBox("Composite unit costs must be non-negative numbers, at least one of them positive")
                     Durdur = True
                 End If
@@ -170,16 +191,16 @@ Public Class MainForm
         End If
         '___________________________________________________________________________________________
         'Control Optimization Parameters
-        If Not IsValidNumber(MemSize.Text) Then
-            MsgBox("Optimization Info Memory size is not defined correctly")
+        If Not IsWholeNumber(MemSize.Text, 2) Then
+            MsgBox("Memory size must be an integer of at least 2")
             Durdur = True
         End If
-        If Not IsValidNumber(SeedBox.Text) OrElse CDbl(SeedBox.Text) < 0 OrElse CDbl(SeedBox.Text) <> Math.Floor(CDbl(SeedBox.Text)) Then
+        If Not IsWholeNumber(SeedBox.Text, 0) Then
             MsgBox("Random seed must be a non-negative integer (0 = time based)")
             Durdur = True
         End If
-        If Not IsValidNumber(maxiter.Text) Then
-            MsgBox("Optimization Info MaxIteration is not defined correctly")
+        If Not IsWholeNumber(maxiter.Text, 1) Then
+            MsgBox("Max. analyses must be a positive integer")
             Durdur = True
         End If
         If Opt_method.SelectedIndex = 0 Then 'Harmony Search
@@ -214,17 +235,18 @@ Public Class MainForm
         FormInfo.Costs = New MiscellaneousStructures.UnitCosts_ With {.Steel = ToDbl(CostSteelBox.Text), .Rebar = ToDbl(CostRebarBox.Text),
                                                                       .Concrete = ToDbl(CostConcreteBox.Text), .Formwork = ToDbl(CostFormworkBox.Text)}
         FormInfo.AutoCombos = AutoCombos.Checked
+        FormInfo.SkipCtoC = Not CtoC.Checked
+        FormInfo.SkipBtoC = Not BtoC.Checked
         FormInfo.DriftComboMode = Math.Max(DriftCombos.SelectedIndex, 0)
         Dim Seed As Integer = CInt(ToDbl(SeedBox.Text))
         FormInfo.Seed = If(Seed > 0, Seed, Environment.TickCount And Integer.MaxValue)
         '_____________________________________________________________
-        FormInfo.FrameInfo.DispLimit = ToDbl(displimit.Text)
         FormInfo.FrameInfo.TopStoryDriftR = ToDbl(TS_LimitR.Text)
         FormInfo.FrameInfo.InterStoryDriftR = ToDbl(IS_LimitR.Text)
         FormInfo.FrameInfo.SteelDesignCode = Dcode_Steel.Text
         '_____________________________________________________________
-        FormInfo.OptInfo.MemorySize = CInt(MemSize.Text)
-        FormInfo.OptInfo.MaxFuncEvaluation = CInt(maxiter.Text)
+        FormInfo.OptInfo.MemorySize = CInt(ToDbl(MemSize.Text))
+        FormInfo.OptInfo.MaxFuncEvaluation = CInt(ToDbl(maxiter.Text))
         FormInfo.OptInfo.MemoryUpdateType = MemoryUpdate.SelectedIndex
         FormInfo.OptInfo.OptimizationMethod = Opt_method.SelectedIndex
         FormInfo.OptInfo.LevyFlight = Levy_Flight.Checked
@@ -248,18 +270,19 @@ Public Class MainForm
         ResultCache.Checked = FormInfo.UseCache
         SkipCases.Checked = FormInfo.SkipUnusedCases
         If FormInfo.Costs.IsSet Then        'old backups: keep the file defaults shown at start
-            CostSteelBox.Text = FormInfo.Costs.Steel.ToString()
-            CostRebarBox.Text = FormInfo.Costs.Rebar.ToString()
-            CostConcreteBox.Text = FormInfo.Costs.Concrete.ToString()
-            CostFormworkBox.Text = FormInfo.Costs.Formwork.ToString()
+            CostSteelBox.Text = Num(FormInfo.Costs.Steel)
+            CostRebarBox.Text = Num(FormInfo.Costs.Rebar)
+            CostConcreteBox.Text = Num(FormInfo.Costs.Concrete)
+            CostFormworkBox.Text = Num(FormInfo.Costs.Formwork)
         End If
         AutoCombos.Checked = FormInfo.AutoCombos
+        CtoC.Checked = Not FormInfo.SkipCtoC
+        BtoC.Checked = Not FormInfo.SkipBtoC
         DriftCombos.SelectedIndex = FormInfo.DriftComboMode
         SeedBox.Text = FormInfo.Seed
         '_____________________________________________________________
-        displimit.Text = FormInfo.FrameInfo.DispLimit
-        TS_LimitR.Text = FormInfo.FrameInfo.TopStoryDriftR
-        IS_LimitR.Text = FormInfo.FrameInfo.InterStoryDriftR
+        TS_LimitR.Text = Num(FormInfo.FrameInfo.TopStoryDriftR)
+        IS_LimitR.Text = Num(FormInfo.FrameInfo.InterStoryDriftR)
         Dcode_Steel.Text = FormInfo.FrameInfo.SteelDesignCode
         '_____________________________________________________________
         MemSize.Text = FormInfo.OptInfo.MemorySize
@@ -271,9 +294,9 @@ Public Class MainForm
         Clear_Duplicates.Checked = FormInfo.OptInfo.ClearDuplicates
         PAR_Type.SelectedIndex = FormInfo.OptInfo.HarmonySearch.PARChangeType
         HMCR_Type.SelectedIndex = FormInfo.OptInfo.HarmonySearch.HMCRChangeType
-        PAR_Val.Text = FormInfo.OptInfo.HarmonySearch.PAR
-        HMCR_val.Text = FormInfo.OptInfo.HarmonySearch.HMCR
-        Mutation_Rate.Text = FormInfo.OptInfo.BioGeography.MutationRate
+        PAR_Val.Text = Num(FormInfo.OptInfo.HarmonySearch.PAR)
+        HMCR_val.Text = Num(FormInfo.OptInfo.HarmonySearch.HMCR)
+        Mutation_Rate.Text = Num(FormInfo.OptInfo.BioGeography.MutationRate)
     End Sub
     Private Sub Backup_Read()
         Dim Results As Class_Backup
@@ -320,6 +343,7 @@ Public Class MainForm
             OptClass.Ub = SAP2000Class.Ub
             OptClass.Lb = SAP2000Class.Lb
             StartTimeBox.Text = SAP2000Class.FormInfo.TimerInfo.StartTime
+            ShowModelInfo()
         End If
         DateBox.Text = Date.Now.ToString("yyyy-MM-dd")
         RunClock = Stopwatch.StartNew()
@@ -343,6 +367,14 @@ Public Class MainForm
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.HarmornySearch Then OptClass.Init_HarmonySearch()
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO Then OptClass.Init_BioGeographyBased()
     End Sub
+    'Model size on the Structural Properties tab
+    Private Sub ShowModelInfo()
+        NofJoint.Text = SAP2000Class.Points.Length.ToString()
+        nofmember.Text = SAP2000Class.Frames.Length.ToString()
+        nofgroup.Text = SAP2000Class.SteelFrameDesignGroupIDs.Count.ToString()
+        nofsection1.Text = SAP2000Class.WSections.Count.ToString()
+    End Sub
+
     Private Shared Function FormatSpan(ByVal t As TimeSpan) As String
         Return If(t.Days > 0, t.Days & "d ", "") & t.Hours.ToString("00") & ":" & t.Minutes.ToString("00") & ":" & t.Seconds.ToString("00")
     End Function
@@ -383,6 +415,7 @@ Public Class MainForm
         SetRandomSeed(FormInfo.Seed)
         SAP2000Class = New ETABS_Class(FormInfo, ret)
         If ret <> 0 Then : LogError("Error occurend in ETABS_Class") : Exit Sub : End If
+        ShowModelInfo()
         Dim Sect_ID() As Integer = Read_SectionID(ret)
         If ret <> 0 Then : LogError("Error occurend in Read_SectionID") : Exit Sub : End If
         ret = SAP2000Class.SetAndAnalyze(Sect_ID, False)
@@ -392,23 +425,33 @@ Public Class MainForm
         If ret <> 0 Then : LogError("Error occurend in Penalty") : Exit Sub : End If
         ret = SAP2000Class.VerifyCompositeWithETABS()      'ETABS composite column design -> ETABS_print (check.xml)
         If ret <> 0 Then : LogError("Error occurend in VerifyCompositeWithETABS") : Exit Sub : End If
-        SAP2000Class.CostStProfile(Sect_ID)
+        SAP2000Class.ETABS_print.Penalty = Penalty
+        SAP2000Class.ETABS_print.Cost = SAP2000Class.CostStProfile(Sect_ID)
+        SAP2000Class.ETABS_print.AnalysisFailed = SAP2000Class.AnalysisFailed
+        SAP2000Class.Errorlogprint("Info: checked design: cost " & Num(SAP2000Class.ETABS_print.Cost) & ", penalty " & Num(Penalty) & If(SAP2000Class.AnalysisFailed, " (analysis not finished)", ""))
         Dim serializer As New XmlSerializer(GetType(ETABS_Print))
         Using writer As New StreamWriter(Path.ChangeExtension(OutputLoc.Text, ".check.xml"))
             serializer.Serialize(writer, SAP2000Class.ETABS_print)
         End Using
         SAP2000Class.Close(ret)
     End Sub
+    'Sections of an output file, matched by group name ("<GroupName>: <SectionName> [composite info]")
     Private Function Read_SectionID(ByRef ret As Integer) As Integer()
+        Dim Sect_ID(SAP2000Class.SteelFrameDesignGroupIDs.Count - 1) As Integer
+        If Not File.Exists(OutputLoc.Text) Then : SAP2000Class.Errorlogprint("Output file to check not found: " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
         Dim xmldoc As New XmlDocument()
         xmldoc.Load(OutputLoc.Text)
         Dim xmlnode As XmlNodeList = xmldoc.GetElementsByTagName("GlobalBestPrint")
-        Dim Sect_ID(SAP2000Class.SteelFrameDesignGroupIDs.Count - 1) As Integer
-        If xmlnode.Count = 0 Then : ret = -1 : Return Sect_ID : End If
-        'items: "Global Best: ..", header, then "<GroupName>: <SectionName> [composite info]" for each design group
+        If xmlnode.Count = 0 Then : SAP2000Class.Errorlogprint("No GlobalBestPrint in " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
+        Dim ByGroup As New Dictionary(Of String, String)
+        For Each item As XmlNode In xmlnode(0).ChildNodes
+            Dim parts() As String = item.InnerText.Split(":".ToCharArray(), 2)
+            If parts.Length = 2 Then ByGroup(parts(0).Trim()) = parts(1).Trim().Split(" "c)(0)
+        Next
         For j = 0 To SAP2000Class.SteelFrameDesignGroupIDs.Count - 1
-            Dim textT As String = xmlnode(0).ChildNodes.Item(j + 2).InnerText
-            Dim Sname As String = textT.Split(":".ToCharArray(), 2)(1).Trim().Split(" "c)(0)
+            Dim G As String = SAP2000Class.Groups(SAP2000Class.SteelFrameDesignGroupIDs(j)).GroupName
+            Dim Sname As String = Nothing
+            If Not ByGroup.TryGetValue(G, Sname) Then : SAP2000Class.Errorlogprint("Group " & G & " not found in " & OutputLoc.Text) : ret = -1 : Continue For : End If
             Sect_ID(j) = SAP2000Class.WSections.FindIndex(Function(c) c.SectionName = Sname)
             If Sect_ID(j) < 0 Then : SAP2000Class.Errorlogprint("Section not found in library: " & Sname) : ret = -1 : End If
         Next j

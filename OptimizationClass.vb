@@ -18,6 +18,9 @@ Public Class OptimizationClass
     Public Update As Boolean
     Public SAP2000Class As ETABS_Class
     Public ETABSCompositeCheck As List(Of String)      'ETABS composite column design of the final design
+    Public FinalCheck As OptimizationStructure_.Member_    'final analysis of the best design (all cases, no repair)
+    Public FinalConstraints As List(Of String)             'governing constraint values of that analysis
+    Private LastUpdatedID As Integer = -1                  'memory position replaced by the last Eval (-1: none)
 
     Public Sub Init_HarmonySearch()
         ReDim FormInfo.OptInfo.HarmonySearch.ParVec(Memory.Count - 1)
@@ -78,9 +81,10 @@ Public Class OptimizationClass
         Next
         Eval(Member, Imem, ret)
         If ret <> 0 Then : LogError("Problem occured in :Eval") : Exit Sub : End If
-        If Update = True Then
-            FormInfo.OptInfo.HarmonySearch.ParVec(Imem) = PAR
-            FormInfo.OptInfo.HarmonySearch.HMCRVec(Imem) = HMCR
+        'the parameters belong to the member that entered the memory (Random / Worst update: not Imem)
+        If Update AndAlso LastUpdatedID >= 0 Then
+            FormInfo.OptInfo.HarmonySearch.ParVec(LastUpdatedID) = PAR
+            FormInfo.OptInfo.HarmonySearch.HMCRVec(LastUpdatedID) = HMCR
         End If
     End Sub
     Private Sub Main_BioGeographyBased(ByRef Imem As Integer, ByRef ret As Integer)
@@ -346,6 +350,7 @@ Public Class OptimizationClass
         Dim CId = Imem
         Update = True
         MemoryUpdate(CId, Member, Update)
+        LastUpdatedID = If(Update, CId, -1)
     End Sub
     Private Sub Math_Evaluate(ByRef Member As OptimizationStructure_.Member_)
         Dim Sect_Ind() As Integer = Member.DesignVariables
@@ -384,24 +389,35 @@ Public Class OptimizationClass
         ElseIf FormInfo.OptInfo.TestWithMath = True Then
             Math_Evaluate(GlobalBest)
         Else
-            'Re-analyse the best design as it is (no repair) with all analysis cases, save as <file>_best.EDB
+            'Re-analyse a copy of the best design as it is (no repair, all analysis cases), save as <file>_best.EDB.
+            'GlobalBest itself is kept: the final values go to FinalCheck.
             ret = SAP2000Class.RestoreRunCases()
-            If ret = 0 Then SAP2000Class.Evaluate(GlobalBest, iter, ret, applyRepair:=False)
+            If ret <> 0 Then LogError("Problem occured in :RestoreRunCases")
+            Dim Final As OptimizationStructure_.Member_ = GlobalBest
+            Final.DesignVariables = CType(GlobalBest.DesignVariables.Clone(), Integer())
+            If ret = 0 Then SAP2000Class.Evaluate(Final, iter, ret, applyRepair:=False)
             If ret <> 0 Then
-                LogError("Problem occured in :Evaluate")
+                LogError("Problem occured in :Evaluate (final analysis)")
             Else
+                FinalCheck = Final
+                FinalConstraints = SAP2000Class.ConstraintSummary()
+                For Each c In FinalConstraints
+                    LogError("Info: final design, " & c)
+                Next
+                If Final.Penalty > 0 Then LogError("Warning: final analysis of the best design (all analysis cases, no repair) gives penalty " & Final.Penalty.ToString("G4"))
                 'composite columns of the best design: ETABS composite column design (ETABS 20+)
-                ret = SAP2000Class.VerifyCompositeWithETABS()
-                If ret <> 0 Then LogError("Problem occured in :VerifyCompositeWithETABS")
+                Dim VerifyRet As Integer = SAP2000Class.VerifyCompositeWithETABS()
+                If VerifyRet <> 0 Then LogError("Problem occured in :VerifyCompositeWithETABS")
                 ETABSCompositeCheck = SAP2000Class.ETABS_print.ETABSCompositeCheck
                 Dim f As String = FormInfo.FileList.ETABSFile
-                ret = SAP2000Class.SapModel.File.Save(Path.Combine(Path.GetDirectoryName(f), Path.GetFileNameWithoutExtension(f) & "_best.EDB"))
-                If (ret <> 0) Then LogError("Problem occured in :File.Save")
+                Dim SaveRet As Integer = SAP2000Class.SapModel.File.Save(Path.Combine(Path.GetDirectoryName(f), Path.GetFileNameWithoutExtension(f) & "_best.EDB"))
+                If SaveRet <> 0 Then LogError("Problem occured in :File.Save (_best.EDB)")
+                ret = If(VerifyRet <> 0, VerifyRet, SaveRet)
             End If
         End If
         If GlobalBest.PenalizedCost <> Double.PositiveInfinity Then
             Yazdir_Final()
-            If ret = 0 Then LogError("Optimization Process has been completed successfully")
+            If ret = 0 Then LogError("Info: optimization completed successfully")
         End If
         If SAP2000Class IsNot Nothing Then SAP2000Class.Close(ret)
     End Sub
@@ -429,7 +445,9 @@ Public Class OptimizationClass
             .BestValue = BestValue,
             .GlobalBestPrint = GlobalBestPrint,
             .Seed = FormInfo.Seed,
-            .ETABSCompositeCheck = ETABSCompositeCheck
+            .ETABSCompositeCheck = ETABSCompositeCheck,
+            .FinalCheck = FinalCheck,
+            .FinalConstraints = FinalConstraints
         }
         Dim serializer As New XmlSerializer(GetType(ClassFinal))
         Using writer As New StreamWriter(FileList.OutputFile)
@@ -445,6 +463,10 @@ Public Class ClassFinal
     Public GlobalBestPrint As List(Of String)
     'per composite group: "Group: ETABS PMM .., shear .. | internal .." (ETABS 20+)
     Public ETABSCompositeCheck As List(Of String)
+    'cost / penalty of the best design in the final analysis (all analysis cases, no repair)
+    Public FinalCheck As OptimizationStructure_.Member_
+    'governing constraints of the final analysis: "<constraint>: <value / limit>"
+    Public FinalConstraints As List(Of String)
 End Class
 Public Class Class_Backup
     Public Memory As List(Of OptimizationStructure_.Member_)

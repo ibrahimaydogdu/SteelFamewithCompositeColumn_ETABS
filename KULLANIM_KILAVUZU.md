@@ -54,7 +54,10 @@ Program seçilen modeli **değiştirmez**:
   - Listeler: en iyi çözümün kesitleri ve iyileşme geçmişi.
 
 **Structural Properties sekmesi**
-- Öteleme sınırları (H/oran) ve çelik tasarım kodu (varsayılan `AISC 360-22`).
+- *Number of Joint / Members / Group / Section*: modelden okunan sayılar (salt okunur). Group, tasarım değişkeni olan grup sayısıdır.
+- Öteleme sınırları (H/oran, pozitif sayı) ve çelik tasarım kodu (varsayılan `AISC 360-22`).
+- *Column to Column*: üst kat kolonu alt kattakinden büyük olamaz. *Beam to Column*: kiriş flanşı kolona sığmalı. Kutu işaretli değilse o kısıt kullanılmaz.
+- Sayı kutularında ondalık ayırıcı olarak "." veya "," kullanılabilir; Windows dil ayarından bağımsızdır.
   - ETABS 22: `AISC 360-22` ve `AISC 360-16` kullanılabilir.
   - ETABS 19 API'si bu iki kodu kabul etmez; `AISC 360-10` seçin.
   - Atanan kod `ErrorLog.txt` dosyasına `Info: steel design code …` satırıyla yazılır.
@@ -68,6 +71,9 @@ Program seçilen modeli **değiştirmez**:
   - *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
     - "All cases and combos": modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
     - "Lateral (wind / earthquake) only": yalnızca rüzgâr veya deprem içeren kombinasyonlar; bunlar yoksa bu tür yük durumları.
+    - "Lateral load cases only (service)": yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
+      - Katsayısız (servis) öteleme kontrolü içindir. Modelde böyle durumlar tanımlı olmalıdır.
+    - **Dikkat:** İlk iki mod, katsayılı dayanım kombinasyonlarını da (ör. 1,2D + 1,6W) kullanır. Öteleme sınırları genellikle servis yükleri içindir; bu modlarda öteleme fazla tahmin edilip kolonlar gereğinden büyük çıkabilir.
     - Not: ETABS analizi yine tüm durumları çözer; kazanç sonuç okuma aşamasındadır.
   - *Random seed*: 0 girilirse her koşu farklı olur (saat bazlı). Pozitif bir sayı aynı koşuyu tekrarlar. Kullanılan tohum pencere başlığında, `ErrorLog.txt` dosyasında ve sonuç XML'inde yazar. Çoklu koşu için alanı 0 bırakıp programı tekrar çalıştırın.
   - *Skip analysis cases not used by design / drift checks* (varsayılan açık): dayanım ve sehim kombinasyonlarında ve öteleme kontrolünde kullanılmayan yük durumları çözülmez.
@@ -140,10 +146,10 @@ Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak
 ## 5. Çıktılar
 | Dosya | İçerik |
 |---|---|
-| Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
+| Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. `FinalCheck`: en iyi tasarımın düzeltmesiz ve tüm durumlarla final analizi (maliyet, ceza). `FinalConstraints`: belirleyici kısıtlar (oran / sınır). `ETABSCompositeCheck`: ETABS kompozit kolon kontrolü. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
 | `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
 | Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir |
-| `ErrorLog.txt` (model klasörü) | Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |
+| `ErrorLog.txt` (model klasörü) | Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |
 | `BackUp.xml` (program klasörü) | Her çevrimde güncellenen yedek |
 
 ## 6. Sık karşılaşılan durumlar

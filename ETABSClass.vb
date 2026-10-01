@@ -71,6 +71,8 @@ Public Class ETABS_Class
     Private ReadOnly Cache As New Dictionary(Of String, OptimizationStructure_.Member_)
     'Section index currently assigned in ETABS per design variable (-1 = unknown): unchanged groups are not re-assigned
     Private Assigned() As Integer
+    'Design vector of the current analysis results (Nothing: model changed since): SetAndAnalyze skips a repeat
+    Private LastAnalysed() As Integer
 
     'Run statistics: total time and number of calls of each ETABS operation (ErrorLog at Close)
     Private ReadOnly Timing As New Dictionary(Of String, Stopwatch)
@@ -102,7 +104,7 @@ Public Class ETABS_Class
         ret = Initilize()
     End Sub
     Public Sub Close(ret As Integer)
-        FormInfo.TimerInfo.FinishTime = TimeOfDay.ToString("hh:mm:ss")
+        FormInfo.TimerInfo.FinishTime = TimeOfDay.ToString("HH:mm:ss")
         Dim timeSpan As TimeSpan = Date.Now.Subtract(FormInfo.TimerInfo.startDate)
         Dim avtime As Double = If(Iter > 0, Math.Round(timeSpan.TotalSeconds / Iter, 2), 0)
         FormInfo.TimerInfo.TotalTime = timeSpan.Days & "D:" & timeSpan.Hours & "H:" & timeSpan.Minutes & "M:" & timeSpan.Seconds & "S," & "Ave=" & avtime & "sec"
@@ -177,7 +179,7 @@ Public Class ETABS_Class
         '_____________________________________________________
         'Start Timer
         FormInfo.TimerInfo.startDate = Date.Now
-        FormInfo.TimerInfo.StartTime = TimeOfDay.ToString("hh:mm:ss")
+        FormInfo.TimerInfo.StartTime = Date.Now.ToString("HH:mm:ss")
         Return ret
     End Function
 
@@ -393,7 +395,8 @@ Public Class ETABS_Class
             ElseIf hx And hy And Not hz Then
                 Frames(i).FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.DiagonalXY
             Else
-                Errorlogprint("Check coordinates of the member: " & Frames(i).FrameName)
+                Frames(i).FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.Other       'not a beam / column / plane brace
+                Errorlogprint("Warning: member " & Frames(i).FrameName & " is not a beam, column or plane brace (or has zero length)")
             End If
             Frames(i).FrameLenght = Math.Sqrt(dx ^ 2 + dy ^ 2 + dz ^ 2)
             '_____________________________________________________
@@ -591,6 +594,13 @@ Public Class ETABS_Class
                 Errorlogprint("No lateral (wind/earthquake) combination or case found for the drift checks")
                 Return -1
             End If
+        ElseIf FormInfo.DriftComboMode = MiscellaneousStructures.DriftComboMode_.LateralCasesOnly Then
+            DriftComboNames = New List(Of String)
+            DriftCaseNames = LoadCaseNames.Where(Function(c) IsPureLateralCase(c)).ToList()
+            If DriftCaseNames.Count = 0 Then
+                Errorlogprint("No pure lateral load case (wind / earthquake patterns only) for the drift checks: define unfactored lateral cases or select another drift mode")
+                Return -1
+            End If
         Else
             DriftComboNames = ComboNames.AllCombos
             DriftCaseNames = LoadCaseNames
@@ -650,6 +660,28 @@ Public Class ETABS_Class
             End If
         Next
         Return False
+    End Function
+
+    'Response spectrum, or a linear static case whose loads are all wind / earthquake patterns or lateral accelerations
+    '(no gravity part, no load factors of a strength combination built into the case)
+    Private Function IsPureLateralCase(ByVal CaseName As String) As Boolean
+        Dim CaseType As ETABSv1.eLoadCaseType
+        Dim SubType As Integer
+        If SapModel.LoadCases.GetTypeOAPI(CaseName, CaseType, SubType) <> 0 Then Return False
+        If CaseType = ETABSv1.eLoadCaseType.ResponseSpectrum Then Return True
+        If CaseType <> ETABSv1.eLoadCaseType.LinearStatic Then Return False
+        Dim NumberLoads As Integer, LoadType() As String = Nothing, LoadName() As String = Nothing, SF() As Double = Nothing
+        If SapModel.LoadCases.StaticLinear.GetLoads(CaseName, NumberLoads, LoadType, LoadName, SF) <> 0 OrElse NumberLoads = 0 Then Return False
+        For i = 0 To NumberLoads - 1
+            If LoadType(i) = "Accel" Then
+                If LoadName(i).ToUpperInvariant() = "UZ" Then Return False
+            Else
+                Dim PatternType As ETABSv1.eLoadPatternType
+                If SapModel.LoadPatterns.GetLoadType(LoadName(i), PatternType) <> 0 OrElse
+                   (PatternType <> ETABSv1.eLoadPatternType.Quake AndAlso PatternType <> ETABSv1.eLoadPatternType.Wind) Then Return False
+            End If
+        Next
+        Return True
     End Function
 
     Private Function IsLateralCombo(ByVal ComboName As String, ByVal Visited As Dictionary(Of String, Boolean)) As Boolean
@@ -766,6 +798,7 @@ Public Class ETABS_Class
 
     'Before the final analysis of the best design: the saved model contains all results
     Public Function RestoreRunCases() As Integer
+        If DisabledCases.Count > 0 Then InvalidateAnalysis()
         For Each c In DisabledCases
             Dim ret As Integer = SapModel.Analyze.SetRunCaseFlag(c, True)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.SetRunCaseFlag " & c) : Return ret : End If
@@ -915,6 +948,10 @@ Public Class ETABS_Class
                 End If
             Next
         Next i
+        'form: "Column to Column" / "Beam to Column" unchecked
+        If FormInfo.SkipCtoC Then GeoCons.CtoCList.Clear()
+        If FormInfo.SkipBtoC Then GeoCons.BtoCList.Clear()
+        Errorlogprint("Info: geometric constraints: " & GeoCons.CtoCList.Count & " column-column, " & GeoCons.BtoCList.Count & " beam-column")
         Return ret
     End Function
 
@@ -942,16 +979,17 @@ Public Class ETABS_Class
         If (ret <> 0) Then Return ret
         '_______________________________________________________________________________________________
         'Assign Auto Steel Beam
-        Dim SteelBeams = Frames.Where(Function(c) c.FrameDesignProcedure = FramePointStoryGroupStructures_.DesignProcedure_.SteelFrameDesign _
-                                            And (c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.X Or c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.Y))
+        'only members of design variable groups: other steel members keep the section of the model
+        Dim IsVariable = Function(c As FramePointStoryGroupStructures_.Frame_) c.FrameDesignProcedure = FramePointStoryGroupStructures_.DesignProcedure_.SteelFrameDesign AndAlso
+                                                                              c.GroupName IsNot Nothing AndAlso VarIndex.ContainsKey(c.GroupName)
+        Dim SteelBeams = Frames.Where(Function(c) IsVariable(c) AndAlso (c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.X OrElse c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.Y))
         For Each SteelBeam In SteelBeams
             ret = SapModel.FrameObj.SetSection(SteelBeam.FrameName, BeamList, 0)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetSection " & BeamList) : Return ret : End If
         Next
         '_______________________________________________________________________________________________
         'Assign Auto Steel Column (composite columns too: the steel-only design gives the upper bound)
-        Dim SteelColumns = Frames.Where(Function(c) c.FrameDesignProcedure = FramePointStoryGroupStructures_.DesignProcedure_.SteelFrameDesign _
-                                    And c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.Z)
+        Dim SteelColumns = Frames.Where(Function(c) IsVariable(c) AndAlso c.FrameDirc = FramePointStoryGroupStructures_.FrameDirc_.Z)
         For Each SteelColumn In SteelColumns
             ret = SapModel.FrameObj.SetSection(SteelColumn.FrameName, ColumnList, 0)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :FrameObj.SetSection " & ColumnList) : Return ret : End If
@@ -980,7 +1018,9 @@ Public Class ETABS_Class
             Lb(i) = SecID + CInt(Shift - LOWER_BOUND_MULTIPLIER * (N - 1))
             If Groups(isec).IsComposite Then Lb(i) = 0     'concrete encasement: smaller W sections are feasible
             If Ub(i) > N - 1 Then Ub(i) = N - 1
+            If Ub(i) < 0 Then Ub(i) = 0
             If Lb(i) < 0 Then Lb(i) = 0
+            If Lb(i) > Ub(i) Then Lb(i) = Ub(i)        'a very large design ratio shifts both bounds up
         Next i
         Return ret
     End Function
@@ -1027,31 +1067,55 @@ Public Class ETABS_Class
         Member.PenalizedCost = Member.CostValue * (1 + Member.Penalty) ^ 3
     End Sub
 
+    'Analysis of Sect_Ind. Skipped when the model was already analysed with exactly these sections (a repair step that
+    'did not change any variable): results and design of the last analysis are still valid.
     Public Function SetAndAnalyze(ByRef Sect_Ind() As Integer, ByVal applyGeometric As Boolean) As Integer
         If applyGeometric Then Call E1_Modifier_Geometric(Sect_Ind)
+        If LastAnalysed IsNot Nothing AndAlso LastAnalysed.SequenceEqual(Sect_Ind) Then
+            Clock("SkippedAnalysis")
+            Return 0
+        End If
         Dim ret As Integer = E2_SetSection(Sect_Ind)
         If ret <> 0 Then Return ret
-        Return E3_Analysis()
+        ret = E3_Analysis()
+        If ret = 0 Then LastAnalysed = CType(Sect_Ind.Clone(), Integer())
+        Return ret
     End Function
 
-    Private Sub E1_Modifier_Geometric(ByVal Sect_Ind() As Integer)   'array elements are modified in place
+    'The model was changed outside SetAndAnalyze (auto select lists, run case flags, encased sections)
+    Private Sub InvalidateAnalysis()
+        LastAnalysed = Nothing
+    End Sub
+
+    'Section index of variable v within [Lb, Ub] that satisfies Fits and is closest to the current one (-1: none);
+    'equal distances are decided by the seeded generator
+    Private Function NearestFeasible(ByVal v As Integer, ByVal Current As Integer, ByVal Fits As Func(Of Integer, Boolean)) As Integer
+        Dim Lo As Integer = If(Lb IsNot Nothing, Lb(v), 0), Hi As Integer = If(Ub IsNot Nothing, Ub(v), WSections.Count - 1)
+        Dim Best As Integer = -1, BestDist As Integer = Integer.MaxValue
+        For k = Lo To Hi
+            If Not Fits(k) Then Continue For
+            Dim d As Integer = Math.Abs(k - Current)
+            If d < BestDist OrElse (d = BestDist AndAlso Rng.Next(2) = 0) Then Best = k : BestDist = d
+        Next
+        Return Best
+    End Function
+
+    'Geometric repair (array elements are modified in place): the smallest change that satisfies the constraint
+    Private Sub E1_Modifier_Geometric(ByVal Sect_Ind() As Integer)
         For Each CtoC In GeoCons.CtoCList
             Dim GrNameDown As String = CtoC(1)
             Dim UpVar As Integer = VarIndex(CtoC(0))
             Dim DownVar As Integer = VarIndex(GrNameDown)
             Dim UpArea As Double = WSections(Sect_Ind(UpVar)).Area
             Dim UpDepth As Double = WSections(Sect_Ind(UpVar)).Depth
-            Dim DownArea As Double = WSections(Sect_Ind(DownVar)).Area
-            Dim DownDepth As Double = WSections(Sect_Ind(DownVar)).Depth
-
-            If UpArea > DownArea Or UpDepth > DownDepth Then
-                'lower column must not exceed the column(s) below it; no limit if there is none
+            If UpArea > WSections(Sect_Ind(DownVar)).Area OrElse UpDepth > WSections(Sect_Ind(DownVar)).Depth Then
+                'lower column at least as large as the upper one, not larger than the column(s) below it
                 Dim DownDownVars = GeoCons.CtoCList.Where(Function(c) c(0) = GrNameDown).Select(Function(c) VarIndex(c(1))).ToList()
                 Dim DownDownDepth As Double = If(DownDownVars.Any(), DownDownVars.Min(Function(v) WSections(Sect_Ind(v)).Depth), Double.MaxValue)
                 Dim DownDownArea As Double = If(DownDownVars.Any(), DownDownVars.Min(Function(v) WSections(Sect_Ind(v)).Area), Double.MaxValue)
-                Dim PosSections = Enumerable.Range(0, WSections.Count).Where(Function(k) WSections(k).Area >= UpArea And WSections(k).Depth >= UpDepth _
-                                                                     And WSections(k).Area <= DownDownArea And WSections(k).Depth <= DownDownDepth).ToList()
-                If PosSections.Count > 0 Then Sect_Ind(DownVar) = PosSections(Rng.Next(PosSections.Count))
+                Dim k As Integer = NearestFeasible(DownVar, Sect_Ind(DownVar), Function(s) WSections(s).Area >= UpArea AndAlso WSections(s).Depth >= UpDepth AndAlso
+                                                                                     WSections(s).Area <= DownDownArea AndAlso WSections(s).Depth <= DownDownDepth)
+                If k >= 0 Then Sect_Ind(DownVar) = k
             End If
         Next
 
@@ -1060,13 +1124,13 @@ Public Class ETABS_Class
             Dim BeamVar As Integer = VarIndex(BtoC(1))
             Dim Gap As Double = ConnectionGap(WSections(Sect_Ind(ColVar)), BtoC(2))
             If WSections(Sect_Ind(BeamVar)).FlangeLength > Gap Then
-                Dim PosSections = Enumerable.Range(0, WSections.Count).Where(Function(k) WSections(k).FlangeLength <= Gap).ToList()
-                If PosSections.Count > 0 Then Sect_Ind(BeamVar) = PosSections(Rng.Next(PosSections.Count))
+                Dim k As Integer = NearestFeasible(BeamVar, Sect_Ind(BeamVar), Function(s) WSections(s).FlangeLength <= Gap)
+                If k >= 0 Then Sect_Ind(BeamVar) = k
             End If
         Next
     End Sub
 
-    Private Shared Function ConnectionGap(ByRef Column As SectionStructures_.STEEL_I_SECTION, ByVal ConType As String) As Double
+    Private Shared Function ConnectionGap(ByVal Column As SectionStructures_.STEEL_I_SECTION, ByVal ConType As String) As Double
         If ConType = "Depth" Then Return Column.Depth - 2 * Column.FlangeThickness
         Return Column.FlangeLength
     End Function
@@ -1189,12 +1253,15 @@ Public Class ETABS_Class
         ret = EvaluateConstraints()
         If ret <> 0 OrElse AnalysisFailed Then Exit Sub
         Dim Steps() As Integer = RepairSteps()
-        If Steps.All(Function(s) s = 0) Then Exit Sub
+        Dim Before() As Integer = CType(Sect_Ind.Clone(), Integer())
         For v = 0 To Steps.Length - 1
             If Steps(v) <> 0 Then StepVariable(Sect_Ind, v, Steps(v))
         Next
+        If Before.SequenceEqual(Sect_Ind) Then Exit Sub     'steps rounded to 0 or clipped at Ub: nothing to re-analyse
+        Dim Analysed() As Integer = LastAnalysed
         ret = SetAndAnalyze(Sect_Ind, True)
         If ret <> 0 Then : Errorlogprint("Problem occured on :SetAndAnalyze (combined repair)") : Exit Sub : End If
+        If LastAnalysed Is Analysed Then Exit Sub           'the geometric repair restored the analysed vector
         If AnalysisFailed Then Exit Sub
         ret = EvaluateConstraints()
     End Sub
@@ -1238,6 +1305,25 @@ Public Class ETABS_Class
         Return Steps
     End Function
 
+    'Governing constraint values of the current analysis (final report): ratio / limit, 1 = at the limit
+    Public Function ConstraintSummary() As List(Of String)
+        Dim F3 = Function(x As Double) x.ToString("F3", CultureInfo.InvariantCulture)
+        Dim L As New List(Of String)
+        Dim Inter As Double = Stories.Select(Function(st) Math.Max(st.InterStoryDriftX, st.InterStoryDriftY) / st.InterStoryDriftLimit).DefaultIfEmpty(0).Max()
+        L.Add("inter-story drift / limit: " & F3(Inter))
+        L.Add("top drift / limit: " & F3(Math.Max(TopDriftX, TopDriftY) / TopDriftLimit))
+        Dim SteelIDs = SteelFrameDesignGroupIDs.Where(Function(id) Not Groups(id).IsComposite).ToList()
+        If SteelIDs.Count > 0 Then L.Add("steel design ratio (max): " & F3(SteelIDs.Max(Function(id) Groups(id).PMMRatio)))
+        Dim CompIDs = SteelFrameDesignGroupIDs.Where(Function(id) Groups(id).IsComposite).ToList()
+        If CompIDs.Count > 0 Then
+            L.Add("composite strength ratio (max): " & F3(CompIDs.Max(Function(id) Groups(id).CompositeStrength)))
+            L.Add("composite detailing ratio (max): " & F3(CompIDs.Max(Function(id) Groups(id).CompositeDetailing)))
+        End If
+        L.Add("column-column geometric ratio (max): " & F3(If(ETABS_print.ColumnToColumnGeometricRatio, New List(Of Double)).DefaultIfEmpty(0).Max()))
+        L.Add("beam-column geometric ratio (max): " & F3(If(ETABS_print.BeamToColumnGeometricRatio, New List(Of Double)).DefaultIfEmpty(0).Max()))
+        Return L
+    End Function
+
     Private Shared Function MaxRatioPenalty(ByVal Ratios As List(Of Double)) As Double
         If Ratios Is Nothing OrElse Ratios.Count = 0 Then Return 0
         Return Math.Max(Ratios.Max() - 1, 0)
@@ -1272,7 +1358,7 @@ Public Class ETABS_Class
         Dim ret As Integer = F1_1_UpdateJointDisp()
         If (ret <> 0) Then : Errorlogprint("Problem occured on :F1_1_UpdateJointDisp") : Return ret : End If
         Try
-            ETABS_print.InterStoryDrift_Ratios = New List(Of List(Of Double))
+            ETABS_print.InterStoryDrifts = New List(Of List(Of Double))
             For i = 0 To Stories.Length - 1
                 Dim DriftX As Double = 0
                 Dim DriftY As Double = 0
@@ -1290,7 +1376,7 @@ Public Class ETABS_Class
                 Stories(i).InterStoryDriftY = DriftY
                 Stories(i).InterStoryDPenaltyX = Math.Max(DriftX / Limit - 1, 0)
                 Stories(i).InterStoryDPenaltyY = Math.Max(DriftY / Limit - 1, 0)
-                ETABS_print.InterStoryDrift_Ratios.Add(New List(Of Double)({DriftX, DriftY}))
+                ETABS_print.InterStoryDrifts.Add(New List(Of Double)({DriftX, DriftY}))
             Next i
         Catch ex As Exception
             Errorlogprint("Problem occured on :F1_ConsInterStoryDrift " & ex.Message)
@@ -1355,30 +1441,29 @@ Public Class ETABS_Class
         Sect_Ind(v) = Math.Min(Math.Max(Sect_Ind(v) + StepSize, Lb(v)), Ub(v))
     End Sub
 
-    'Returns True if a design variable was modified
+    'F2 / F4 / G2 return True only if a design variable really changed (a step can round to 0 or be clipped at Ub)
     Private Function F2_Modifier_InterStoryDrift(ByRef Sect_Ind() As Integer) As Boolean
-        Dim changed As Boolean = False
+        Dim Before() As Integer = CType(Sect_Ind.Clone(), Integer())
         For i = 0 To Stories.Length - 1
             Dim Ratio As Double = Math.Max(Stories(i).InterStoryDPenaltyX, Stories(i).InterStoryDPenaltyY) + 1
             If Ratio <= 1 Then Continue For
-            changed = True
             For Each v In StoryColumnVars(i)
                 StepVariable(Sect_Ind, v, CInt(DRIFT_LOG_MULTIPLIER * Math.Log(Ratio) * WSections.Count))
             Next
         Next i
-        Return changed
+        Return Not Before.SequenceEqual(Sect_Ind)
     End Function
 
     Private Function F3_ConsTopStoryDrift() As Integer
         Dim ret As Integer = 0
         Try
-            ETABS_print.TopStoryDrift_Ratio = New List(Of Double)
+            ETABS_print.TopStoryDrifts = New List(Of Double)
             Dim TopPoints = Points.Where(Function(c) Math.Abs(c.Zcoord - StructureHeight) < COORD_TOL AndAlso c.PointDisp.U1 IsNot Nothing AndAlso c.PointDisp.U1.Count > 0).ToList()
             If TopPoints.Count = 0 Then Throw New InvalidOperationException("No top points found at the structure height.")
             TopDriftX = TopPoints.Max(Function(p) p.PointDisp.U1.Max(Function(u) Math.Abs(u)))
             TopDriftY = TopPoints.Max(Function(p) p.PointDisp.U2.Max(Function(u) Math.Abs(u)))
-            ETABS_print.TopStoryDrift_Ratio.Add(TopDriftX)
-            ETABS_print.TopStoryDrift_Ratio.Add(TopDriftY)
+            ETABS_print.TopStoryDrifts.Add(TopDriftX)
+            ETABS_print.TopStoryDrifts.Add(TopDriftY)
         Catch ex As Exception
             Errorlogprint("Error in F3_ConsTopStoryDrift: " & ex.Message)
             ret = -1
@@ -1390,12 +1475,13 @@ Public Class ETABS_Class
         Dim Ratio As Double = Math.Max(TopDriftX, TopDriftY) / TopDriftLimit
         If Ratio <= 1 Then Return False
         Dim StepSize As Integer = CInt(DRIFT_LOG_MULTIPLIER * Math.Log(Ratio) * WSections.Count)
+        Dim Before() As Integer = CType(Sect_Ind.Clone(), Integer())
         For i = 0 To Stories.Length - 1
             For Each v In StoryColumnVars(i)
                 StepVariable(Sect_Ind, v, StepSize)
             Next
         Next
-        Return True
+        Return Not Before.SequenceEqual(Sect_Ind)
     End Function
 
     Private Sub G_Evaluate_PMM(ByRef Sect_Ind() As Integer, ByVal repair As Boolean, ByRef ret As Integer)
@@ -1420,7 +1506,6 @@ Public Class ETABS_Class
         Dim ret As Integer = G1_1_Design()
         If (ret <> 0) Then : Errorlogprint("Problem occured on :G1_1_Design") : Return ret : End If
         Try
-            ETABS_print.PMM_Ratios = New List(Of Double)
             For i = 0 To SteelFrameDesignGroupIDs.Count - 1
                 Dim ID As Integer = SteelFrameDesignGroupIDs(i)
                 If CompositeActive AndAlso Groups(ID).IsComposite Then Continue For
@@ -1442,7 +1527,6 @@ Public Class ETABS_Class
                 Groups(ID).PMMRatio = Ratio.Max()
                 Dim ErrorCount As Integer = ErrorSummary.Count(Function(c) Not String.IsNullOrEmpty(c))
                 If ErrorCount > 0 Then Groups(ID).PMMRatio += 1 + ErrorCount / NumberItems
-                ETABS_print.PMM_Ratios.Add(Groups(ID).PMMRatio)
 
                 If updateDesignSections Then
                     'largest (by area) design section of the group
@@ -1466,6 +1550,9 @@ Public Class ETABS_Class
                 c.Stop()
                 If (ret <> 0) Then : Errorlogprint("Problem occured on :G1_2_ConsComposite") : Return ret : End If
             End If
+            'in design variable order (steel and composite groups)
+            ETABS_print.GroupNames = SteelFrameDesignGroupIDs.Select(Function(id) Groups(id).GroupName).ToList()
+            ETABS_print.PMM_Ratios = SteelFrameDesignGroupIDs.Select(Function(id) Groups(id).PMMRatio).ToList()
         Catch ex As Exception
             Errorlogprint("Problem occured on :G1_ConsPMM " & ex.Message)
             ret = -1
@@ -1515,7 +1602,6 @@ Public Class ETABS_Class
             Groups(ID).CompositeStrength = Strength
             Groups(ID).CompositeDetailing = Detailing
             Groups(ID).PMMRatio = GroupRatio
-            ETABS_print.PMM_Ratios.Add(GroupRatio)
             ETABS_print.CompositeRatios.Add(GroupRatio)
         Next v
         Return ret
@@ -1530,15 +1616,12 @@ Public Class ETABS_Class
     End Function
 
     Private Function G2_Modifier_PMM(ByRef Sect_Ind() As Integer) As Boolean
-        Dim changed As Boolean = False
+        Dim Before() As Integer = CType(Sect_Ind.Clone(), Integer())
         For i = 0 To SteelFrameDesignGroupIDs.Count - 1
             Dim Ratio As Double = Groups(SteelFrameDesignGroupIDs(i)).PMMRatio
-            If Ratio > 1 Then
-                changed = True
-                StepVariable(Sect_Ind, i, CInt(PMM_LOG_MULTIPLIER * Math.Log(Ratio) * WSections.Count))
-            End If
+            If Ratio > 1 Then StepVariable(Sect_Ind, i, CInt(PMM_LOG_MULTIPLIER * Math.Log(Ratio) * WSections.Count))
         Next i
-        Return changed
+        Return Not Before.SequenceEqual(Sect_Ind)
     End Function
 
     Public Sub H_Evaluate_GeometricPenalty(ByRef Sect_Ind() As Integer)
@@ -1638,8 +1721,9 @@ Public Class ETABS_Class
         ret = SapModel.PropMaterial.GetWeightAndMass(CompositeSettings.RebarMaterial, W, Mass) : M.RebarWeight = W
         If (ret <> 0) Then : Errorlogprint("Problem occured on :PropMaterial.GetWeightAndMass " & CompositeSettings.RebarMaterial) : Return ret : End If
         'I1.3 (kN/mm²): 21 MPa <= f'c <= 69 MPa, Fy <= 525 MPa, Fysr <= 550 MPa
-        If M.fc < 0.021 Or M.fc > 0.069 Then Errorlogprint("Warning: f'c = " & M.fc * 1000 & " MPa is outside 21-69 MPa (AISC I1.3); limited")
-        M.fc = Math.Min(Math.Max(M.fc, 0.021), 0.069)
+        'below 21 MPa the actual (lower) strength is used: raising it would be unconservative
+        If M.fc < 0.021 Then Errorlogprint("Warning: f'c = " & M.fc * 1000 & " MPa is below 21 MPa (AISC I1.3 lower limit); actual value used")
+        If M.fc > 0.069 Then : Errorlogprint("Warning: f'c = " & M.fc * 1000 & " MPa limited to 69 MPa for the strength (AISC I1.3)") : M.fc = 0.069 : End If
         If M.Fy > 0.525 Then : Errorlogprint("Warning: Fy limited to 525 MPa (AISC I1.3)") : M.Fy = 0.525 : End If
         If M.Fysr > 0.55 Then : Errorlogprint("Warning: Fysr limited to 550 MPa (AISC I1.3)") : M.Fysr = 0.55 : End If
         CompositeMat = M
@@ -1733,6 +1817,7 @@ Public Class ETABS_Class
     End Function
 
     Private Function CreateEncasedSections(ByVal Missing As List(Of Integer)) As Integer
+        If Missing.Count = 0 Then Return 0
         Dim BarName As String = Nothing, TieName As String = Nothing
         Dim ret As Integer
         'table edits are ignored (without an error) while the model is locked after an analysis
@@ -1823,6 +1908,8 @@ Public Class ETABS_Class
         ETABS_print.ETABSCompositeRatios = New List(Of Double)
         If Not (FormInfo.CompositeColumns AndAlso UseEncasedSections) OrElse Assigned Is Nothing Then Return 0
         Dim ret As Integer
+        If Not Groups.Any(Function(g) g.IsComposite) Then Return 0
+        InvalidateAnalysis()
         '1. the General sections of the current design -> encased sections with the same names
         Dim CompVars As List(Of Integer) = Enumerable.Range(0, SteelFrameDesignGroupIDs.Count).Where(Function(v) Groups(SteelFrameDesignGroupIDs(v)).IsComposite).ToList()
         Dim clkS = Clock("CreateSections") : clkS.Start()
@@ -1930,7 +2017,9 @@ Public Class ETABS_Class
         If Not String.IsNullOrEmpty(FormInfo.FileList.ETABSFile) Then Dir = Path.GetDirectoryName(FormInfo.FileList.ETABSFile)
         If String.IsNullOrEmpty(Dir) Then Dir = AppDomain.CurrentDomain.BaseDirectory
         Try
-            File.AppendAllText(Path.Combine(Dir, "ErrorLog.txt"), Date.Now.ToString("yyyy-MM-dd HH:mm:ss") & " Error message: " & msg & Environment.NewLine)
+            'Info: / Warning: lines as they are, everything else is an error
+            Dim Line As String = If(msg.StartsWith("Info:") OrElse msg.StartsWith("Warning:"), msg, "Error: " & msg)
+            File.AppendAllText(Path.Combine(Dir, "ErrorLog.txt"), Date.Now.ToString("yyyy-MM-dd HH:mm:ss") & " " & Line & Environment.NewLine)
         Catch
             'logging must never stop the optimization
         End Try
@@ -1938,9 +2027,14 @@ Public Class ETABS_Class
 End Class
 
 Public Class ETABS_Print
-    Public PMM_Ratios As New List(Of Double)
-    Public InterStoryDrift_Ratios As New List(Of List(Of Double))
-    Public TopStoryDrift_Ratio As New List(Of Double)
+    'Check Structure output (<output>.check.xml) and last constraint values
+    Public Penalty As Double
+    Public Cost As Double
+    Public AnalysisFailed As Boolean
+    Public GroupNames As New List(Of String)            'design variable groups, order of PMM_Ratios
+    Public PMM_Ratios As New List(Of Double)            'design ratio per group (composite: max(strength, detailing))
+    Public InterStoryDrifts As New List(Of List(Of Double))     'per story {X, Y} [mm]
+    Public TopStoryDrifts As New List(Of Double)                '{X, Y} [mm]
     Public BeamToColumnGeometricRatio As New List(Of Double)
     Public ColumnToColumnGeometricRatio As New List(Of Double)
     Public CompositeRatios As New List(Of Double)
