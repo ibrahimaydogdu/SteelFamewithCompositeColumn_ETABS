@@ -1,0 +1,17 @@
+# Visual Studio / derleme çıktıları
+.vs/
+bin/
+obj/
+packages/
+*.user
+*.suo
+
+# CSI API yardım dosyaları (CSI'ya ait, ETABS kurulumuyla gelir)
+*.chm
+*.chw
+
+# Çalışma çıktıları
+ErrorLog.txt
+BackUp.xml
+*.EDB
+*.ebk
