@@ -50,7 +50,7 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 - **Derleme:** temiz. **Test22:** tüm testler geçti. **Form ekranları:** doğru, maliyet varsayılanları 1 / 0,5 / 0,6 / 0,15.
 - **30 analizlik koşu** (`CompositeStrengthFactor = 0,7`, servis öteleme modu):
   - ETABS PMM oranları 0,29–0,93 arasında; koruma adımı gerekmedi.
-  - Kalibrasyon satırı ETABS/iç oranını 1,077 verdi ve 1,08'i önerdi (0,7 × 1,077 / 0,7 → iç çözücünün katsayısız farkı ≈ %8; tanıyla tutarlı).
+  - Kalibrasyon satırı katsayısız ETABS / iç oranını 1,077 verdi ve `CompositeStrengthFactor = 1,08` önerdi. İç çözücü ETABS'ten yaklaşık %8 düşük kalıyor; bu, tanıdaki Mn2 farkıyla tutarlı.
 - **Zorlanmış koruma testi** (final = alt sınır kesitleri):
   - Her adımda aşan 10 grup bir üst kesite çıktı ve yeniden analiz edilip doğrulandı. Ceza 674 → 349 düştü.
   - 3 adımdan sonra uyarı yazıldı; `_best.EDB` ve sonuç XML'i üretildi.
