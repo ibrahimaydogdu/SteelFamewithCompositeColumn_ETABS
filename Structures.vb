@@ -83,7 +83,7 @@ Public Class FramePointStoryGroupStructures_
         Public FrameName As String
         Public FirstPointName As String
         Public SecondPointName As String
-        Public FrameLenght As Double
+        Public FrameLength As Double
         Public FrameDirc As FrameDirc_
         Public GroupName As String
         Public LocalAxisAngle As Double
@@ -142,7 +142,7 @@ Public Class FramePointStoryGroupStructures_
         Public GroupObjectNames() As String
         Public GroupObjectTypes() As ObjectType_
         Public GroupLength As Double
-        Public GroupDesignPocedure As DesignProcedure_
+        Public GroupDesignProcedure As DesignProcedure_
         Public PMMRatio As Double
         Public DesignSecName As String
         Public DesignSecID As Integer

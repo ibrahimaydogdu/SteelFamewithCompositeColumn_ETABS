@@ -14,6 +14,9 @@ Kompozit kolonlu uzay çelik çerçevelerin optimum tasarımı (ETABS 22; ETABS 
 | `SectionPropertyDataPath` | Kesit kütüphanesi. CSI formatında ve birimi **mm** olmalıdır (ETABS 22: `AISC16M.xml`, ETABS 19: `AISC14M.xml`). |
 | `BeamAutoSelectList`, `ColumnAutoSelectList` | Başlangıç tasarımında kullanılan otomatik kesit listelerinin adları |
 | `WorkFolder` | Modelin çalışma kopyalarının klasörü. Boş bırakılırsa `%TEMP%\SteelFrameOpt` kullanılır. |
+| `ServiceLateralFactor` | Programın oluşturduğu `SRV_<desen>` servis durumlarının yük katsayısı (varsayılan 1,0) |
+| `SeismicDriftAmplification` | Servis öteleme modunda deprem durumlarının yerdeğiştirme büyütmesi (varsayılan 1,0; ASCE 7: Cd/Ie, TBDY 2018: R/I) |
+| `CompositeStrengthFactor` | İç kompozit dayanım oranlarının çarpanı (varsayılan 1,0). Final ETABS kontrolünün önerdiği değer girilebilir. |
 
 3. Kompozit mod kullanılacaksa `EncasedSections.xml` dosyası exe ile aynı klasörde bulunmalıdır. Proje derlenince otomatik kopyalanır.
 
@@ -74,7 +77,7 @@ Program seçilen modeli **değiştirmez**:
     - **"Lateral load cases (service, unfactored)"** (varsayılan): yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
       - Modelde böyle bir durum yoksa program, çalışma kopyasında her rüzgâr ve deprem yük deseni için katsayısız bir doğrusal durum (`SRV_<desen>`) oluşturur ve günlüğe yazar.
       - Durumların yük katsayısı `App.config` > `ServiceLateralFactor` ile ayarlanır (varsayılan 1,0). Örneğin ASCE 7'deki servis rüzgârı için 0,6 ya da 0,7 kullanılabilir.
-      - Deprem desenlerinde bu durumlar dayanım düzeyi elastik ötelemeyi verir; yönetmeliğin Cd/Ie büyütmesi uygulanmaz.
+      - Deprem durumları (response spectrum ve yalnızca deprem desenli doğrusal durumlar) elastik ötelemeyi verir. Bunlar `App.config` > `SeismicDriftAmplification` ile çarpılır (ASCE 7: Cd/Ie, TBDY 2018: R/I). Varsayılan 1,0'dır ve bu durumda günlüğe uyarı yazılır. Rüzgâr durumları büyütülmez.
       - Katsayısız (servis) öteleme kontrolü içindir. Modelde böyle durumlar tanımlı olmalıdır.
     - **Dikkat:** İlk iki mod, katsayılı dayanım kombinasyonlarını da (ör. 1,2D + 1,6W) kullanır. Öteleme sınırları genellikle servis yükleri içindir; bu modlarda öteleme fazla tahmin edilip kolonlar gereğinden büyük çıkabilir.
     - Not: ETABS analizi yine tüm durumları çözer; kazanç sonuç okuma aşamasındadır.
@@ -153,7 +156,11 @@ Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğü
   - `.check.xml`
 - `_best.EDB` gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
 - Bu adım tüm kolonlar için birkaç dakika sürer (525M: yaklaşık 3 dakika).
-- **Dikkat:** 525M modelinde, şekil değiştirme uyumu yöntemiyle, ETABS oranları iç çözücüden %2–14 yüksek çıktı (oranı 1'e yakın kolonlarda yaklaşık %2). Final kontrolünde ETABS oranının 1'i aşıp aşmadığına bakın.
+- **Fark:** 525M modelinde ETABS oranları iç çözücüden %0,5–14 yüksek çıktı. Fark çoğunlukla zayıf eksen moment kapasitesinden gelir.
+- **ETABS koruması:** ETABS oranı 1'i aşan kompozit grup otomatik olarak bir üst kesite çıkarılır. Tasarım yeniden analiz edilip ETABS ile yeniden doğrulanır (en fazla 3 adım).
+  - Günlükte `Info: ETABS guard …` satırları görünür. `FinalCheck` ve `_best.EDB` korunmuş tasarımı içerir.
+  - Aşan grup üst sınırdaysa uyarı yazılır.
+- **Kalibrasyon:** günlükteki `ETABS / internal composite strength ratio (max)` satırı önerilen `CompositeStrengthFactor` değerini verir. Bu değeri `App.config` dosyasına yazarsanız arama ETABS ile uyumlu, güvenli tarafta yürür.
 
 Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.
 

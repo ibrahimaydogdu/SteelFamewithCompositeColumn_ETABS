@@ -24,14 +24,14 @@ Partial Class MainForm
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
         Me.GroupBox1 = New System.Windows.Forms.GroupBox()
-        Me.loadSAP2000file = New System.Windows.Forms.Button()
-        Me.saplocation = New System.Windows.Forms.TextBox()
+        Me.LoadModelButton = New System.Windows.Forms.Button()
+        Me.ModelFileBox = New System.Windows.Forms.TextBox()
         Me.GroupBox3 = New System.Windows.Forms.GroupBox()
         Me.loadoutput = New System.Windows.Forms.Button()
         Me.OutputLoc = New System.Windows.Forms.TextBox()
         Me.GroupBox6 = New System.Windows.Forms.GroupBox()
         Me.CheckStructure = New System.Windows.Forms.CheckBox()
-        Me.HideSAP2000 = New System.Windows.Forms.CheckBox()
+        Me.HideETABS = New System.Windows.Forms.CheckBox()
         Me.BackUp = New System.Windows.Forms.CheckBox()
         Me.start = New System.Windows.Forms.Button()
         Me.AverageTimeBox = New System.Windows.Forms.TextBox()
@@ -140,8 +140,8 @@ Partial Class MainForm
         '
         'GroupBox1
         '
-        Me.GroupBox1.Controls.Add(Me.loadSAP2000file)
-        Me.GroupBox1.Controls.Add(Me.saplocation)
+        Me.GroupBox1.Controls.Add(Me.LoadModelButton)
+        Me.GroupBox1.Controls.Add(Me.ModelFileBox)
         Me.GroupBox1.Location = New System.Drawing.Point(8, 23)
         Me.GroupBox1.Margin = New System.Windows.Forms.Padding(4)
         Me.GroupBox1.Name = "GroupBox1"
@@ -151,23 +151,23 @@ Partial Class MainForm
         Me.GroupBox1.TabStop = False
         Me.GroupBox1.Text = "ETABS Model (*.EDB)"
         '
-        'loadSAP2000file
+        'LoadModelButton
         '
-        Me.loadSAP2000file.Location = New System.Drawing.Point(497, 15)
-        Me.loadSAP2000file.Margin = New System.Windows.Forms.Padding(4)
-        Me.loadSAP2000file.Name = "loadSAP2000file"
-        Me.loadSAP2000file.Size = New System.Drawing.Size(80, 23)
-        Me.loadSAP2000file.TabIndex = 1
-        Me.loadSAP2000file.Text = "Select"
-        Me.loadSAP2000file.UseVisualStyleBackColor = True
+        Me.LoadModelButton.Location = New System.Drawing.Point(497, 15)
+        Me.LoadModelButton.Margin = New System.Windows.Forms.Padding(4)
+        Me.LoadModelButton.Name = "LoadModelButton"
+        Me.LoadModelButton.Size = New System.Drawing.Size(80, 23)
+        Me.LoadModelButton.TabIndex = 1
+        Me.LoadModelButton.Text = "Select"
+        Me.LoadModelButton.UseVisualStyleBackColor = True
         '
-        'saplocation
+        'ModelFileBox
         '
-        Me.saplocation.Location = New System.Drawing.Point(9, 15)
-        Me.saplocation.Margin = New System.Windows.Forms.Padding(4)
-        Me.saplocation.Name = "saplocation"
-        Me.saplocation.Size = New System.Drawing.Size(465, 22)
-        Me.saplocation.TabIndex = 0
+        Me.ModelFileBox.Location = New System.Drawing.Point(9, 15)
+        Me.ModelFileBox.Margin = New System.Windows.Forms.Padding(4)
+        Me.ModelFileBox.Name = "ModelFileBox"
+        Me.ModelFileBox.Size = New System.Drawing.Size(465, 22)
+        Me.ModelFileBox.TabIndex = 0
         '
         'GroupBox3
         '
@@ -203,7 +203,7 @@ Partial Class MainForm
         'GroupBox6
         '
         Me.GroupBox6.Controls.Add(Me.CheckStructure)
-        Me.GroupBox6.Controls.Add(Me.HideSAP2000)
+        Me.GroupBox6.Controls.Add(Me.HideETABS)
         Me.GroupBox6.Controls.Add(Me.BackUp)
         Me.GroupBox6.Controls.Add(Me.start)
         Me.GroupBox6.Controls.Add(Me.AverageTimeBox)
@@ -236,14 +236,14 @@ Partial Class MainForm
         '
         'HideETABS
         '
-        Me.HideSAP2000.AutoSize = True
-        Me.HideSAP2000.Location = New System.Drawing.Point(376, 76)
-        Me.HideSAP2000.Margin = New System.Windows.Forms.Padding(4)
-        Me.HideSAP2000.Name = "HideETABS"
-        Me.HideSAP2000.Size = New System.Drawing.Size(116, 20)
-        Me.HideSAP2000.TabIndex = 15
-        Me.HideSAP2000.Text = "Hide ETABS"
-        Me.HideSAP2000.UseVisualStyleBackColor = True
+        Me.HideETABS.AutoSize = True
+        Me.HideETABS.Location = New System.Drawing.Point(376, 76)
+        Me.HideETABS.Margin = New System.Windows.Forms.Padding(4)
+        Me.HideETABS.Name = "HideETABS"
+        Me.HideETABS.Size = New System.Drawing.Size(116, 20)
+        Me.HideETABS.TabIndex = 15
+        Me.HideETABS.Text = "Hide ETABS"
+        Me.HideETABS.UseVisualStyleBackColor = True
         '
         'BackUp
         '
@@ -1281,8 +1281,8 @@ Partial Class MainForm
     End Sub
 
     Friend WithEvents GroupBox1 As GroupBox
-    Friend WithEvents loadSAP2000file As Button
-    Friend WithEvents saplocation As TextBox
+    Friend WithEvents LoadModelButton As Button
+    Friend WithEvents ModelFileBox As TextBox
     Friend WithEvents GroupBox3 As GroupBox
     Friend WithEvents loadoutput As Button
     Friend WithEvents OutputLoc As TextBox
@@ -1342,7 +1342,7 @@ Partial Class MainForm
     Friend WithEvents Label27 As Label
     Friend WithEvents TextBox1 As TextBox
     Friend WithEvents label38 As Label
-    Friend WithEvents HideSAP2000 As CheckBox
+    Friend WithEvents HideETABS As CheckBox
     Friend WithEvents ListBox1 As ListBox
     Friend WithEvents ListBox2 As ListBox
     Friend WithEvents TestwithMath As CheckBox

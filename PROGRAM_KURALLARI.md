@@ -59,11 +59,12 @@ Evaluate(Member, applyRepair)
 - Düzeltme fonksiyonları (`F2`/`F4`/`G2`) yalnızca vektör gerçekten değiştiyse `True` döndürür.
 - Geometri düzeltmesi (E1) değişkeni `[Lb, Ub]` içinde tutar (`NearestFeasible`).
 - Formdaki sayılar `TryNum` ile okunur (invariant culture, "," → "."). `IsNumeric` / `CDbl` kullanılmaz.
-- **P-Delta ve servis durumları** (`EnablePDelta`, `EnsureServiceLateralCases`) yalnızca çalışma kopyasında ve `InitilizeLoadCases`'tan önce çalışır. Ön tanımlı P-Delta için OAPI'de setter yoktur; `P-Delta Option Definition` tablosu kullanılır. Servis durumları `SRV_<desen>` adını taşır.
+- **P-Delta ve servis durumları** (`EnablePDelta`, `EnsureServiceLateralCases`) yalnızca çalışma kopyasında ve `InitializeLoadCases`'tan önce çalışır. Ön tanımlı P-Delta için OAPI'de setter yoktur; `P-Delta Option Definition` tablosu kullanılır. Servis durumları `SRV_<desen>` adını taşır.
+- **Deprem öteleme büyütmesi** (`SetSeismicDriftFactors`, `DriftFactor`): yalnızca `LateralCasesOnly` modunda, deprem durumlarının U1/U2 değerleri `F1_1_UpdateJointDispCore` içinde `SeismicDriftAmplification` ile çarpılır.
 - Çelik tasarım sonuçları tek `GetSummaryResults("All")` çağrısıyla okunur ve `FrameIndex` üzerinden gruplara dağıtılır.
 - `RunCases` (çalışan durumlar) önbelleğe alınır. Çalışan durumları değiştiren kod `RunCases = Nothing` yapmalıdır.
 - Algoritmalardaki normal dağılım `NormalRnd` (tohumlu `Rnd` + Box-Muller) ile üretilir; `New Random()` kullanılmaz.
-- `E2` hangi kesitin atandığını `Assigned()` ile izler. Kesitler `E2` dışında atanırsa (otomatik listeler, `Initilize_UBLB`) `ForgetAssignedSections()` çağrılmalıdır.
+- `E2` hangi kesitin atandığını `Assigned()` ile izler. Kesitler `E2` dışında atanırsa (otomatik listeler, `Initialize_UBLB`) `ForgetAssignedSections()` çağrılmalıdır.
 - `E3` artık `File.Save` çağırmaz: model `WorkFile` üzerinden açıldığı için `RunAnalysis` dosya yolunu bilir. Analiz ETABS süreci içinde çalıştırılır (`SetSolverOption_3`, process 1), bu analiz başına yaklaşık %10 kazandırır.
 - **Önbellek ve döngü sonu:** önbellek isabetleri analiz sayacını (`iter`) artırmaz. Ana döngü, art arda `MAX_STALL_LOOPS` (20) çevrimde yeni analiz yapılmazsa yakınsamış kabul edilip sonlanır.
 - **SkipUnusedCases:** tasarım ve öteleme kontrolünde kullanılmayan yük durumları çözülmez. Kullanılan durumların başlangıç ve modal durumları, tüm Modal durumlar ve `~` ile başlayan iç durumlar korunur. Tanınmayan bir durum tipi varsa hiçbir durum kapatılmaz. `Opt_Finalize`, final analizinden önce `RestoreRunCases` çağırır; böylece `_best.EDB` tüm sonuçları içerir.
@@ -96,7 +97,9 @@ Kurallar:
     2. Kesitler yeniden atanır ve tasarım prosedürü `SetDesignProcedure(…, 13)` ile kompozit kolon yapılır. Aramada atanan 7 (No Design), kesit yeniden atanınca sıfırlanmaz.
     3. Analiz yapılır ve aynı analizde iç çözücü (`G1_ConsPMM`) çalıştırılır.
     4. `DesignCompositeColumn.SetCode` + `StartDesign` çalıştırılır.
-    5. Sonuçlar `Composite Column Summary - <kod>` tablosundan okunur.
+    5. Sonuçlar `Composite Column Summary - <kod>` tablosundan okunur. Grup başına oran `ETABSRatioByVar` alanına yazılır.
+    6. `Opt_Finalize` koruması: oranı 1'i aşan grup `StepUpETABSFailures` ile bir üst kesite (Ub içinde) çıkar. Ardından `Evaluate(applyRepair:=False)` ve yeniden doğrulama yapılır (en fazla `ETABS_GUARD_STEPS = 3`).
+  - İç dayanım oranı `CompositeStrengthFactor` (App.config) ile çarpılır. `CompositeStrength` çarpılmış değerdir; kalibrasyon oranı hesaplanırken katsayıya bölünür.
   - API bilgileri:
     - Gömülü kesit ve donatı için OAPI setter yoktur. `SetRebarColumn` gömülü kesitte `ret = 1` döner. Kesit ve donatı `DatabaseTables` ile yazılır: `Conc Encasement Rectangle` ve `Concrete Column Reinforcing` tabloları.
     - `DesignCompositeColumn.GetSummaryResults` ETABS 22.6'da kaymış veri döndürür (çerçeve adı yerine kesit adı, PMM = 0). Sonuçlar tablodan okunur.
@@ -138,7 +141,7 @@ Kurallar:
 
 ## 8. Dosya ve çıktı kuralları
 - **Çalışma kopyası:** girdi modeli hiçbir zaman değiştirilmez.
-  - `InitilizeETABS` modeli `WorkFolder` klasörüne kopyalar (`App.config`; boşsa `%TEMP%\SteelFrameOpt`). Klasör adı `<model>_<yyyyMMdd_HHmmss>` biçimindedir. ETABS bu kopyayı (`WorkFile`) açar.
+  - `InitializeETABS` modeli `WorkFolder` klasörüne kopyalar (`App.config`; boşsa `%TEMP%\SteelFrameOpt`). Klasör adı `<model>_<yyyyMMdd_HHmmss>` biçimindedir. ETABS bu kopyayı (`WorkFile`) açar.
   - `E3_Analysis` her analizde **`WorkFile`** üzerine kaydeder. Model dosyasına kaydetme yalnızca `WorkFile` ve `_best.EDB` için yapılır.
   - Çalışma klasörü `Shutdown` içinde (`Close` çağırır), ETABS kapandıktan sonra silinir. Silinemezse uyarı yazılır, koşu bozulmaz.
   - ETABS'i kapatan her yol `Close` veya `Shutdown` üzerinden geçmelidir; aksi halde geçici klasör kalır.

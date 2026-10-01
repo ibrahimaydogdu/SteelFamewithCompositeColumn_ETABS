@@ -5,6 +5,60 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-01 — Aşama 10: Açık kalan üç madde
+
+### 1. İç çözücü ile ETABS farkı
+- **Tanı** (W1100X499, 1300x600, 12D20; çerçeve 467, Comb3):
+  - Eksenel terim neredeyse aynı: iç 0,275, ETABS 0,271. ETABS burkulma boyu için 0,8266·L (net boy) kullanıyor; iç çözücü tam boy kullandığından biraz güvenli tarafta.
+  - Cm ve B1 aynı.
+  - Fark zayıf eksen moment teriminde: iç (8/9)M2/Mc2 = 0,199, ETABS 0,217. İç çözücünün Mn2 değeri ETABS'inkinden yaklaşık %8–9 yüksek.
+- **Çözüm 1, final ETABS koruması** (`Opt_Finalize`, `StepUpETABSFailures`):
+  - ETABS kompozit tasarımında oranı 1'i aşan grup bir üst kesite (Ub içinde) çıkarılır.
+  - Tasarım düzeltmesiz yeniden analiz edilir (maliyet, ceza, kısıtlar) ve ETABS ile yeniden doğrulanır.
+  - En fazla 3 adım. Sonunda hâlâ aşan grup varsa uyarı yazılır.
+  - `FinalCheck` / `FinalConstraints` korunan tasarımı gösterir; `GlobalBest` aramanın sonucu olarak kalır.
+- **Çözüm 2, kalibrasyon katsayısı:** `App.config` > `CompositeStrengthFactor` (varsayılan 1,0). İç dayanım oranları bu katsayıyla çarpılır.
+  - Final doğrulaması en büyük ETABS / iç oranını günlüğe yazar. Yalnızca iç oranı 0,3'ten büyük gruplar kullanılır.
+  - Oran katsayıyı %2'den fazla aşarsa `Warning` satırı önerilen değeri verir.
+- Yeni yardımcı `ReadNumber`: sayısal App.config ayarları tek yerden okunuyor.
+
+### 2. Depremde servis ötelemesi büyütmesi
+- `App.config` > `SeismicDriftAmplification` (varsayılan 1,0; ASCE 7: Cd/Ie, TBDY 2018: R/I).
+- Yalnızca servis öteleme modunda uygulanır, yalnızca deprem durumlarının yerdeğiştirmelerine:
+  - response spectrum durumları;
+  - yükleri yalnızca Quake desenlerinden ya da ivmelerden oluşan doğrusal statik durumlar (`SRV_<deprem deseni>` dahil).
+- Rüzgâr durumları büyütülmez.
+- Günlük: katsayı 1 ise `Warning`, değilse büyütülen durumlar `Info` olarak yazılır.
+
+### 3. Kozmetik maddeler
+- **Adlar:**
+  - `FrameLenght` → `FrameLength`, `GroupDesignPocedure` → `GroupDesignProcedure`, `Initilize*` → `Initialize*`, "occurend" → "occurred".
+  - `SAP2000Class` → `ETABSModel`, `HideSAP2000` → `HideETABS`, `saplocation` → `ModelFileBox`, `loadSAP2000file` → `LoadModelButton`.
+  - Bunlar yedeğe girmediği için eski yedekler etkilenmiyor. `HarmornySearch` ve `Lamda` yedeğe girdiği için değiştirilmedi. Kök ad alanı `FrameSap2000` de bilerek korundu.
+- **Sihirli sayılar sabit oldu:**
+  - `ANGLE_TOL` (0,01°): açı artık 180° moduna indirgeniyor; −90° ve 450° de döndürülmüş sayılıyor.
+  - `BOUND_SHIFT_MULTIPLIER`, `PENALTY_EXPONENT`, `GAP_FAILED_RATIO`, `REBAR_DIAMETER_TOL`.
+- **CompositeColumn.vb:**
+  - Gömülü kesitte güçlü eksen kesmesi G2.1(b) Cv1 ile hesaplanıyor.
+  - Fiber modelinde donatı alanı, çubuk çapının kapladığı şeritlerden düşülüyor; beton alanı artık fazla çıkmıyor.
+  - `Build`, `MaxBarsPerFace < 2` olsa da kesit üretiyor.
+
+### Final mesajı
+- Final analizinde ceza varsa ya da ETABS kompozit kontrolü aşılıyorsa son satır artık `Warning: optimization completed, but the final design does not satisfy all checks` oluyor. Önceden her durumda "completed successfully" yazıyordu.
+
+### Testler (525M kopyası, ETABS 22.6)
+- **Derleme:** temiz. **Test22:** tüm testler geçti. **Form ekranları:** doğru, maliyet varsayılanları 1 / 0,5 / 0,6 / 0,15.
+- **30 analizlik koşu** (`CompositeStrengthFactor = 0,7`, servis öteleme modu):
+  - ETABS PMM oranları 0,29–0,93 arasında; koruma adımı gerekmedi.
+  - Kalibrasyon satırı ETABS/iç oranını 1,077 verdi ve 1,08'i önerdi (0,7 × 1,077 / 0,7 → iç çözücünün katsayısız farkı ≈ %8; tanıyla tutarlı).
+- **Zorlanmış koruma testi** (final = alt sınır kesitleri):
+  - Her adımda aşan 10 grup bir üst kesite çıktı ve yeniden analiz edilip doğrulandı. Ceza 674 → 349 düştü.
+  - 3 adımdan sonra uyarı yazıldı; `_best.EDB` ve sonuç XML'i üretildi.
+- **Deprem testi** (EQX deseni eklenmiş kopya, `SeismicDriftAmplification = 5,5`): `seismic drift cases [EQX] amplified by 5.5` satırı yazıldı.
+- **Not:** test klasörünün yolu çok uzunsa (.NET 260 karakter sınırı) `App.config` okunamıyor ve program açılışta duruyor. Kısa bir klasör kullanın.
+
+---
+
 ## 2026-10-01 — Aşama 9: P-Delta, servis ötelemesi, birim maliyetler, inceleme Öncelik 3–5
 
 ### P-Delta (kullanıcı isteği)

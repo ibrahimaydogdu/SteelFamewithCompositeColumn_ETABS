@@ -342,7 +342,13 @@ Public MustInherit Class CompositeSection
         Return CompositeClass_.TooSlender
     End Function
 
-    'Web shear coefficient (G2.1(b) / G2.2 with kv), h_t = h/t
+    'Web shear strength coefficient Cv1 (G2.1(b), rolled / built-up I webs without tension field), h_t = h/tw
+    Protected Function ShearCv1(ByVal h_t As Double, ByVal kv As Double) As Double
+        Dim lim As Double = 1.1 * Math.Sqrt(kv * Mat.Es / Mat.Fy)
+        Return If(h_t <= lim, 1.0, lim / h_t)
+    End Function
+
+    'Web shear buckling coefficient Cv2 (G2.2 with kv: G4 boxes, G6 weak axis), h_t = h/t
     Protected Function ShearCv(ByVal h_t As Double, ByVal kv As Double) As Double
         Dim lim1 As Double = 1.1 * Math.Sqrt(kv * Mat.Es / Mat.Fy)
         Dim lim2 As Double = 1.37 * Math.Sqrt(kv * Mat.Es / Mat.Fy)
@@ -432,7 +438,7 @@ Public Class EncasedIShape
             Dim h As Double = Steel.Depth - 2 * If(Steel.KDES > 0, Steel.KDES, Steel.FlangeThickness)
             Dim Aw As Double = Steel.Depth * Steel.WebThickness
             If h / Steel.WebThickness <= 2.24 * Math.Sqrt(Mat.Es / Mat.Fy) Then Return 1.0 * 0.6 * Mat.Fy * Aw     'G2.1(a)
-            Return PHI_V * 0.6 * Mat.Fy * Aw * ShearCv(h / Steel.WebThickness, 5.34)
+            Return PHI_V * 0.6 * Mat.Fy * Aw * ShearCv1(h / Steel.WebThickness, 5.34)        'G2.1(b)
         End If
         'G6: two flanges, kv = 1.2, h/t = bf / (2 tf)
         Dim Af As Double = 2 * Steel.FlangeLength * Steel.FlangeThickness
@@ -491,8 +497,12 @@ Public Class EncasedIShape
         For Each p In RebarPos
             Dim y As Double = If(axis = BendingAxis_.Major, p(1), p(0))
             list.Add(New Fiber_ With {.Pos = y, .Area = BarArea, .Kind = FiberKind_.Rebar})
-            Dim i As Integer = Math.Min(Math.Max(CInt(Math.Floor((y + L / 2) / dy)), 0), STRIPS - 1)
-            conc(i) -= BarArea
+            'concrete displaced by the bar: from the strips the bar diameter covers (one strip can be smaller than the bar)
+            Dim i0 As Integer = Math.Min(Math.Max(CInt(Math.Floor((y - BarDiameter / 2 + L / 2) / dy)), 0), STRIPS - 1)
+            Dim i1 As Integer = Math.Min(Math.Max(CInt(Math.Floor((y + BarDiameter / 2 + L / 2) / dy)), 0), STRIPS - 1)
+            For i = i0 To i1
+                conc(i) -= BarArea / (i1 - i0 + 1)
+            Next
         Next
         For i = 0 To STRIPS - 1
             If conc(i) > 0 Then list.Add(New Fiber_ With {.Pos = -L / 2 + (i + 0.5) * dy, .Area = conc(i), .Kind = FiberKind_.Concrete})
@@ -922,7 +932,8 @@ Public Class EncasedSettings_
         Dim H As Double = Math.Max(RoundUp(W.Depth + 2 * ConcreteCover), MinDimension)
         Dim B As Double = Math.Max(RoundUp(W.FlangeLength + 2 * ConcreteCover), MinDimension)
         Dim Sec As EncasedIShape = Nothing
-        For n = Math.Max(MinBarsPerFace, 2) To Math.Max(MaxBarsPerFace, MinBarsPerFace)
+        'at least 2 bars per face (corners); a MaxBarsPerFace below 2 would leave Sec = Nothing
+        For n = Math.Max(MinBarsPerFace, 2) To Math.Max(Math.Max(MaxBarsPerFace, MinBarsPerFace), 2)
             Sec = New EncasedIShape(W, H, B, RebarDiameter, BarLayout(H, B, n), Mat)
             If Sec.RebarArea / Sec.GrossArea >= 0.004 Then Exit For
         Next

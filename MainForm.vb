@@ -3,7 +3,7 @@ Imports System.IO
 Imports System.Xml.Serialization
 Public Class MainForm
     Public FormInfo As MiscellaneousStructures.FormInfo_
-    Public SAP2000Class As ETABS_Class
+    Public ETABSModel As ETABS_Class
     Public OptClass As OptimizationClass
     Public ID_mem As Integer
     Private Const MAX_STALL_LOOPS As Integer = 20
@@ -45,7 +45,7 @@ Public Class MainForm
         If CheckStructure.Checked = True Then
             Check_Structure(ret)
             If ret <> 0 Then
-                LogError("Error occurend in Check Structure")
+                LogError("Error occurred in Check Structure")
                 CloseETABS(ret)
             End If
             Exit Sub
@@ -57,7 +57,7 @@ Public Class MainForm
             Exit Sub
         End If
         Me.Text = AppTitle & "  -  " & FormInfo.OptInfo.OptimizationMethod.ToString() & "  (seed " & FormInfo.Seed & ")"
-        If SAP2000Class IsNot Nothing Then SAP2000Class.Errorlogprint("Info: run started, method " & FormInfo.OptInfo.OptimizationMethod.ToString() & ", seed " & FormInfo.Seed)
+        If ETABSModel IsNot Nothing Then ETABSModel.Errorlogprint("Info: run started, method " & FormInfo.OptInfo.OptimizationMethod.ToString() & ", seed " & FormInfo.Seed)
         'with the result cache a converged search may produce no new design: stop after MAX_STALL_LOOPS such loops
         Dim Stall As Integer = 0
         Do While OptClass.iter < FormInfo.OptInfo.MaxFuncEvaluation
@@ -68,7 +68,7 @@ Public Class MainForm
                 ID_mem = Imem
                 Opt_Main(ret)
                 If ret <> 0 Then
-                    LogError("Error occurend in Opt_Main")
+                    LogError("Error occurred in Opt_Main")
                     CloseETABS(ret)
                     Exit Sub
                 End If
@@ -77,7 +77,7 @@ Public Class MainForm
             If FormInfo.OptInfo.ClearDuplicates Then
                 OptClass.ClearDuplicates(ret)
                 If ret <> 0 Then
-                    LogError("Error occurend in Clear Duplicates")
+                    LogError("Error occurred in Clear Duplicates")
                     CloseETABS(ret)
                     Exit Sub
                 End If
@@ -99,22 +99,22 @@ Public Class MainForm
 
     'ETABS class may not exist yet (validation error, math test mode)
     Private Sub LogError(ByVal msg As String)
-        If SAP2000Class IsNot Nothing Then
-            SAP2000Class.Errorlogprint(msg)
+        If ETABSModel IsNot Nothing Then
+            ETABSModel.Errorlogprint(msg)
         Else
             MsgBox(msg)
         End If
     End Sub
     Private Sub CloseETABS(ByVal ret As Integer)
-        If SAP2000Class IsNot Nothing Then SAP2000Class.Close(ret)
+        If ETABSModel IsNot Nothing Then ETABSModel.Close(ret)
     End Sub
 
-    Private Sub LoadSAP2000file_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles loadSAP2000file.Click
+    Private Sub LoadModelButton_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LoadModelButton.Click
         Using openFileDialog1 As New Windows.Forms.OpenFileDialog With {
             .Filter = "ETABS File|*.EDB",
             .Title = "Select ETABS file"
         }
-            If openFileDialog1.ShowDialog() = DialogResult.OK Then saplocation.Text = openFileDialog1.FileName
+            If openFileDialog1.ShowDialog() = DialogResult.OK Then ModelFileBox.Text = openFileDialog1.FileName
         End Using
     End Sub
     Private Sub Loadoutput_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles loadoutput.Click
@@ -153,8 +153,8 @@ Public Class MainForm
         Dim Durdur As Boolean = False
         '_______________________________________________________________________________________________
         'Control Input Output file locations
-        If My.Computer.FileSystem.FileExists(saplocation.Text) = False And TestwithMath.Checked = False Then
-            MessageBox.Show("ETABS File Not Found: " & saplocation.Text)
+        If My.Computer.FileSystem.FileExists(ModelFileBox.Text) = False And TestwithMath.Checked = False Then
+            MessageBox.Show("ETABS File Not Found: " & ModelFileBox.Text)
             Durdur = True
         End If
         Dim OutDir As String = Nothing
@@ -222,9 +222,9 @@ Public Class MainForm
     End Function
     Private Sub FormInfo_Read()
         FormInfo = New MiscellaneousStructures.FormInfo_
-        FormInfo.FileList.ETABSFile = saplocation.Text
+        FormInfo.FileList.ETABSFile = ModelFileBox.Text
         FormInfo.FileList.OutputFile = OutputLoc.Text
-        FormInfo.HideETABS = HideSAP2000.Checked
+        FormInfo.HideETABS = HideETABS.Checked
         FormInfo.CheckStructure = CheckStructure.Checked
         FormInfo.CompositeColumns = CompositeColumns.Checked
         FormInfo.CompositeCode = Math.Max(CompositeCodeBox.SelectedIndex, 0)
@@ -259,10 +259,10 @@ Public Class MainForm
         FormInfo.OptInfo.BioGeography.MutationRate = ToDbl(Mutation_Rate.Text)
     End Sub
     Private Sub FormInfo_Write()
-        saplocation.Text = FormInfo.FileList.ETABSFile
+        ModelFileBox.Text = FormInfo.FileList.ETABSFile
         OutputLoc.Text = FormInfo.FileList.OutputFile
         BackUp.Checked = True
-        HideSAP2000.Checked = FormInfo.HideETABS
+        HideETABS.Checked = FormInfo.HideETABS
         CheckStructure.Checked = FormInfo.CheckStructure
         CompositeColumns.Checked = FormInfo.CompositeColumns
         CompositeCodeBox.SelectedIndex = FormInfo.CompositeCode
@@ -337,12 +337,12 @@ Public Class MainForm
         If TestwithMath.Checked = True Then
             OptClass.Math_Init()
         Else
-            SAP2000Class = New ETABS_Class(FormInfo, ret)
-            If ret <> 0 Then : LogError("Error occurend in ETABS_Class") : Exit Sub : End If
-            OptClass.SAP2000Class = SAP2000Class
-            OptClass.Ub = SAP2000Class.Ub
-            OptClass.Lb = SAP2000Class.Lb
-            StartTimeBox.Text = SAP2000Class.FormInfo.TimerInfo.StartTime
+            ETABSModel = New ETABS_Class(FormInfo, ret)
+            If ret <> 0 Then : LogError("Error occurred in ETABS_Class") : Exit Sub : End If
+            OptClass.ETABSModel = ETABSModel
+            OptClass.Ub = ETABSModel.Ub
+            OptClass.Lb = ETABSModel.Lb
+            StartTimeBox.Text = ETABSModel.FormInfo.TimerInfo.StartTime
             ShowModelInfo()
         End If
         DateBox.Text = Date.Now.ToString("yyyy-MM-dd")
@@ -359,7 +359,7 @@ Public Class MainForm
         For i = 0 To FormInfo.OptInfo.MemorySize - 1
             Dim Member As New OptimizationStructure_.Member_
             OptClass.RandomGenerate(Member, 0, ret)
-            If ret <> 0 Then : LogError("Error occurend in RandomGenerate") : Exit Sub : End If
+            If ret <> 0 Then : LogError("Error occurred in RandomGenerate") : Exit Sub : End If
             OptClass.Memory.Add(Member)
             Write_form()
         Next i
@@ -369,10 +369,10 @@ Public Class MainForm
     End Sub
     'Model size on the Structural Properties tab
     Private Sub ShowModelInfo()
-        NofJoint.Text = SAP2000Class.Points.Length.ToString()
-        nofmember.Text = SAP2000Class.Frames.Length.ToString()
-        nofgroup.Text = SAP2000Class.SteelFrameDesignGroupIDs.Count.ToString()
-        nofsection1.Text = SAP2000Class.WSections.Count.ToString()
+        NofJoint.Text = ETABSModel.Points.Length.ToString()
+        nofmember.Text = ETABSModel.Frames.Length.ToString()
+        nofgroup.Text = ETABSModel.SteelFrameDesignGroupIDs.Count.ToString()
+        nofsection1.Text = ETABSModel.WSections.Count.ToString()
     End Sub
 
     Private Shared Function FormatSpan(ByVal t As TimeSpan) As String
@@ -413,47 +413,47 @@ Public Class MainForm
         If Control() = True Then : ret = -1 : Exit Sub : End If
         FormInfo_Read()
         SetRandomSeed(FormInfo.Seed)
-        SAP2000Class = New ETABS_Class(FormInfo, ret)
-        If ret <> 0 Then : LogError("Error occurend in ETABS_Class") : Exit Sub : End If
+        ETABSModel = New ETABS_Class(FormInfo, ret)
+        If ret <> 0 Then : LogError("Error occurred in ETABS_Class") : Exit Sub : End If
         ShowModelInfo()
         Dim Sect_ID() As Integer = Read_SectionID(ret)
-        If ret <> 0 Then : LogError("Error occurend in Read_SectionID") : Exit Sub : End If
-        ret = SAP2000Class.SetAndAnalyze(Sect_ID, False)
-        If ret <> 0 Then : LogError("Error occurend in SetAndAnalyze") : Exit Sub : End If
+        If ret <> 0 Then : LogError("Error occurred in Read_SectionID") : Exit Sub : End If
+        ret = ETABSModel.SetAndAnalyze(Sect_ID, False)
+        If ret <> 0 Then : LogError("Error occurred in SetAndAnalyze") : Exit Sub : End If
         Dim Penalty As Double = -1
-        SAP2000Class.Penalty(Penalty, Sect_ID, ret, applyRepair:=False)
-        If ret <> 0 Then : LogError("Error occurend in Penalty") : Exit Sub : End If
-        ret = SAP2000Class.VerifyCompositeWithETABS()      'ETABS composite column design -> ETABS_print (check.xml)
-        If ret <> 0 Then : LogError("Error occurend in VerifyCompositeWithETABS") : Exit Sub : End If
-        SAP2000Class.ETABS_print.Penalty = Penalty
-        SAP2000Class.ETABS_print.Cost = SAP2000Class.CostStProfile(Sect_ID)
-        SAP2000Class.ETABS_print.AnalysisFailed = SAP2000Class.AnalysisFailed
-        SAP2000Class.Errorlogprint("Info: checked design: cost " & Num(SAP2000Class.ETABS_print.Cost) & ", penalty " & Num(Penalty) & If(SAP2000Class.AnalysisFailed, " (analysis not finished)", ""))
+        ETABSModel.Penalty(Penalty, Sect_ID, ret, applyRepair:=False)
+        If ret <> 0 Then : LogError("Error occurred in Penalty") : Exit Sub : End If
+        ret = ETABSModel.VerifyCompositeWithETABS()      'ETABS composite column design -> ETABS_print (check.xml)
+        If ret <> 0 Then : LogError("Error occurred in VerifyCompositeWithETABS") : Exit Sub : End If
+        ETABSModel.ETABS_print.Penalty = Penalty
+        ETABSModel.ETABS_print.Cost = ETABSModel.CostStProfile(Sect_ID)
+        ETABSModel.ETABS_print.AnalysisFailed = ETABSModel.AnalysisFailed
+        ETABSModel.Errorlogprint("Info: checked design: cost " & Num(ETABSModel.ETABS_print.Cost) & ", penalty " & Num(Penalty) & If(ETABSModel.AnalysisFailed, " (analysis not finished)", ""))
         Dim serializer As New XmlSerializer(GetType(ETABS_Print))
         Using writer As New StreamWriter(Path.ChangeExtension(OutputLoc.Text, ".check.xml"))
-            serializer.Serialize(writer, SAP2000Class.ETABS_print)
+            serializer.Serialize(writer, ETABSModel.ETABS_print)
         End Using
-        SAP2000Class.Close(ret)
+        ETABSModel.Close(ret)
     End Sub
     'Sections of an output file, matched by group name ("<GroupName>: <SectionName> [composite info]")
     Private Function Read_SectionID(ByRef ret As Integer) As Integer()
-        Dim Sect_ID(SAP2000Class.SteelFrameDesignGroupIDs.Count - 1) As Integer
-        If Not File.Exists(OutputLoc.Text) Then : SAP2000Class.Errorlogprint("Output file to check not found: " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
+        Dim Sect_ID(ETABSModel.SteelFrameDesignGroupIDs.Count - 1) As Integer
+        If Not File.Exists(OutputLoc.Text) Then : ETABSModel.Errorlogprint("Output file to check not found: " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
         Dim xmldoc As New XmlDocument()
         xmldoc.Load(OutputLoc.Text)
         Dim xmlnode As XmlNodeList = xmldoc.GetElementsByTagName("GlobalBestPrint")
-        If xmlnode.Count = 0 Then : SAP2000Class.Errorlogprint("No GlobalBestPrint in " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
+        If xmlnode.Count = 0 Then : ETABSModel.Errorlogprint("No GlobalBestPrint in " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
         Dim ByGroup As New Dictionary(Of String, String)
         For Each item As XmlNode In xmlnode(0).ChildNodes
             Dim parts() As String = item.InnerText.Split(":".ToCharArray(), 2)
             If parts.Length = 2 Then ByGroup(parts(0).Trim()) = parts(1).Trim().Split(" "c)(0)
         Next
-        For j = 0 To SAP2000Class.SteelFrameDesignGroupIDs.Count - 1
-            Dim G As String = SAP2000Class.Groups(SAP2000Class.SteelFrameDesignGroupIDs(j)).GroupName
+        For j = 0 To ETABSModel.SteelFrameDesignGroupIDs.Count - 1
+            Dim G As String = ETABSModel.Groups(ETABSModel.SteelFrameDesignGroupIDs(j)).GroupName
             Dim Sname As String = Nothing
-            If Not ByGroup.TryGetValue(G, Sname) Then : SAP2000Class.Errorlogprint("Group " & G & " not found in " & OutputLoc.Text) : ret = -1 : Continue For : End If
-            Sect_ID(j) = SAP2000Class.WSections.FindIndex(Function(c) c.SectionName = Sname)
-            If Sect_ID(j) < 0 Then : SAP2000Class.Errorlogprint("Section not found in library: " & Sname) : ret = -1 : End If
+            If Not ByGroup.TryGetValue(G, Sname) Then : ETABSModel.Errorlogprint("Group " & G & " not found in " & OutputLoc.Text) : ret = -1 : Continue For : End If
+            Sect_ID(j) = ETABSModel.WSections.FindIndex(Function(c) c.SectionName = Sname)
+            If Sect_ID(j) < 0 Then : ETABSModel.Errorlogprint("Section not found in library: " & Sname) : ret = -1 : End If
         Next j
         Return Sect_ID
     End Function

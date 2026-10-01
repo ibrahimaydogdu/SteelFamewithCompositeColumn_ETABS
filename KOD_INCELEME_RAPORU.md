@@ -3,7 +3,8 @@
 Tüm kaynak dosyalar A'dan Z'ye incelendi: ETABSClass, OptimizationClass, MainForm (+Designer), Structures, CompositeColumn, ApplicationEvents.
 - Derleyici uyarıları da tarandı. Kullanılmayan yerel değişken uyarısı yok; 28 örtük tür dönüşümü uyarısı var.
 - **Durum:** Öncelik 1 ve 2 (madde 1–20) Aşama 8'de, Öncelik 3–5 Aşama 9'da düzeltildi (DEGISIKLIKLER.md).
-  - Açık kalanlar küçük kozmetik maddeler: yazım hatalı adlar, SAP2000 adlı kontroller, sihirli sayılar, Cv1/Cv2 notu, fiber beton alanı.
+  - Kozmetik maddeler (adlar, SAP2000 kalıntıları, sihirli sayılar, Cv1, fiber beton alanı, `Build`) Aşama 10'da düzeltildi. Açık madde kalmadı.
+  - Aşama 10'da ayrıca iç çözücü–ETABS farkına final koruması ve kalibrasyon katsayısı, deprem ötelemesine büyütme katsayısı eklendi.
 - ✔ = elle doğrulandı. Satır numaraları yaklaşıktır, dosyalar değiştikçe kayar.
 
 ## Öncelik 1: Sonucu veya ETABS süresini doğrudan etkileyen hatalar

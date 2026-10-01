@@ -9,9 +9,9 @@
         'Last line of defence (exceptions outside Start_Click): log, close ETABS and remove the working folder
         Private Sub MyApplication_UnhandledException(sender As Object, e As ApplicationServices.UnhandledExceptionEventArgs) Handles Me.UnhandledException
             Dim F As Global.FrameSap2000.MainForm = TryCast(Me.MainForm, Global.FrameSap2000.MainForm)
-            If F IsNot Nothing AndAlso F.SAP2000Class IsNot Nothing Then
-                F.SAP2000Class.Errorlogprint("Unhandled exception: " & e.Exception.ToString())
-                F.SAP2000Class.Shutdown()
+            If F IsNot Nothing AndAlso F.ETABSModel IsNot Nothing Then
+                F.ETABSModel.Errorlogprint("Unhandled exception: " & e.Exception.ToString())
+                F.ETABSModel.Shutdown()
             End If
         End Sub
     End Class
