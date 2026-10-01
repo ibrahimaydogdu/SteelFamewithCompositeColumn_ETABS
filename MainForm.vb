@@ -13,7 +13,7 @@ Public Class MainForm
     Private IterAtStart As Integer
 
     Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = 0
+        If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = MiscellaneousStructures.DriftComboMode_.LateralCasesOnly
         If CompositeCodeBox.SelectedIndex < 0 Then CompositeCodeBox.SelectedIndex = CompositeCode_.AISC360_22
         If RepairModeBox.SelectedIndex < 0 Then RepairModeBox.SelectedIndex = MiscellaneousStructures.RepairMode_.Combined
         'unit costs: defaults of EncasedSections.xml (placeholders), edited by the user
@@ -224,7 +224,6 @@ Public Class MainForm
         FormInfo = New MiscellaneousStructures.FormInfo_
         FormInfo.FileList.ETABSFile = saplocation.Text
         FormInfo.FileList.OutputFile = OutputLoc.Text
-        FormInfo.BackUp = BackUp.Checked
         FormInfo.HideETABS = HideSAP2000.Checked
         FormInfo.CheckStructure = CheckStructure.Checked
         FormInfo.CompositeColumns = CompositeColumns.Checked
@@ -235,6 +234,7 @@ Public Class MainForm
         FormInfo.Costs = New MiscellaneousStructures.UnitCosts_ With {.Steel = ToDbl(CostSteelBox.Text), .Rebar = ToDbl(CostRebarBox.Text),
                                                                       .Concrete = ToDbl(CostConcreteBox.Text), .Formwork = ToDbl(CostFormworkBox.Text)}
         FormInfo.AutoCombos = AutoCombos.Checked
+        FormInfo.PDelta = PDeltaBox.Checked
         FormInfo.SkipCtoC = Not CtoC.Checked
         FormInfo.SkipBtoC = Not BtoC.Checked
         FormInfo.DriftComboMode = Math.Max(DriftCombos.SelectedIndex, 0)
@@ -276,6 +276,7 @@ Public Class MainForm
             CostFormworkBox.Text = Num(FormInfo.Costs.Formwork)
         End If
         AutoCombos.Checked = FormInfo.AutoCombos
+        PDeltaBox.Checked = FormInfo.PDelta
         CtoC.Checked = Not FormInfo.SkipCtoC
         BtoC.Checked = Not FormInfo.SkipBtoC
         DriftCombos.SelectedIndex = FormInfo.DriftComboMode
@@ -333,7 +334,6 @@ Public Class MainForm
         StartTimeBox.Text = FormInfo.TimerInfo.StartTime
         OptClass.FormInfo = FormInfo
         OptClass.FileList = FormInfo.FileList
-        OptClass.BackUp = FormInfo.BackUp
         If TestwithMath.Checked = True Then
             OptClass.Math_Init()
         Else

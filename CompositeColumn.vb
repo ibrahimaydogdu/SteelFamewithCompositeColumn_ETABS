@@ -885,10 +885,12 @@ Public Class EncasedSettings_
     Public B2 As Double = 1.0
     Public SectionPrefix As String = "EC_"
     'Relative unit costs of the objective function (composite mode)
+    'Default relative unit costs from assumed unit prices (steel = 1): fabricated and erected structural steel 2.0 $/kg
+    '(204 $/kN), reinforcement 1.0 $/kg (102 $/kN), placed concrete C30 120 $/m³, column formwork 30 $/m²
     Public SteelUnitCost As Double = 1.0            'per kN of structural steel
-    Public RebarUnitCost As Double = 0.8            'per kN of reinforcement
-    Public ConcreteUnitCost As Double = 0.8         'per m³ of concrete
-    Public FormworkUnitCost As Double = 0.2         'per m² of formwork (column perimeter)
+    Public RebarUnitCost As Double = 0.5            'per kN of reinforcement
+    Public ConcreteUnitCost As Double = 0.6         'per m³ of concrete
+    Public FormworkUnitCost As Double = 0.15        'per m² of formwork (column perimeter)
 
     Public Shared Function DefaultPath() As String
         Return IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EncasedSections.xml")

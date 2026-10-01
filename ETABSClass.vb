@@ -1,7 +1,5 @@
-﻿Imports System.Xml
-Imports System.IO
+﻿Imports System.IO
 Imports System.Xml.Serialization
-Imports System.Linq
 Imports System.Configuration
 Imports System.Globalization
 
@@ -23,7 +21,6 @@ Public Class ETABS_Class
     Public SapModel As ETABSv1.cSapModel
     Public ETABSObject As ETABSv1.cOAPI = Nothing
     Public WSections As List(Of SectionStructures_.STEEL_I_SECTION)
-    Public encasedSections As List(Of SectionStructures_.RectangularencasedISection_)
     Public FormInfo As MiscellaneousStructures.FormInfo_
     Public GeoCons As MiscellaneousStructures.GeoCons_
     Public ComboNames As Combinations_
@@ -33,7 +30,6 @@ Public Class ETABS_Class
     Public TopDriftLimit As Double
     Public Ub() As Integer
     Public Lb() As Integer
-    Public StructureWeight As Double
     Public Iter As Integer
     Public A992Fy50Weight As Double
     Public SectionPropertyData As String
@@ -73,6 +69,8 @@ Public Class ETABS_Class
     Private Assigned() As Integer
     'Design vector of the current analysis results (Nothing: model changed since): SetAndAnalyze skips a repeat
     Private LastAnalysed() As Integer
+    'Cases set to run (Nothing: read again); changed only by SetRunCases / RestoreRunCases
+    Private RunCases As HashSet(Of String)
 
     'Run statistics: total time and number of calls of each ETABS operation (ErrorLog at Close)
     Private ReadOnly Timing As New Dictionary(Of String, Stopwatch)
@@ -104,10 +102,7 @@ Public Class ETABS_Class
         ret = Initilize()
     End Sub
     Public Sub Close(ret As Integer)
-        FormInfo.TimerInfo.FinishTime = TimeOfDay.ToString("HH:mm:ss")
-        Dim timeSpan As TimeSpan = Date.Now.Subtract(FormInfo.TimerInfo.startDate)
-        Dim avtime As Double = If(Iter > 0, Math.Round(timeSpan.TotalSeconds / Iter, 2), 0)
-        FormInfo.TimerInfo.TotalTime = timeSpan.Days & "D:" & timeSpan.Hours & "H:" & timeSpan.Minutes & "M:" & timeSpan.Seconds & "S," & "Ave=" & avtime & "sec"
+        Errorlogprint("Info: run time " & Date.Now.Subtract(FormInfo.TimerInfo.startDate).ToString("d\.hh\:mm\:ss") & ", " & Iter & " analyses")
         Errorlogprint("Info: timing " & TimingReport())
 
         Shutdown()
@@ -144,6 +139,14 @@ Public Class ETABS_Class
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeStories") : Return ret : End If
         ret = InitilizeGroups()
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeGroups") : Return ret : End If
+        If FormInfo.PDelta Then
+            ret = EnablePDelta()
+            If (ret <> 0) Then : Errorlogprint("Problem occured on Function: EnablePDelta") : Return ret : End If
+        End If
+        If FormInfo.DriftComboMode = MiscellaneousStructures.DriftComboMode_.LateralCasesOnly Then
+            ret = EnsureServiceLateralCases()
+            If (ret <> 0) Then : Errorlogprint("Problem occured on Function: EnsureServiceLateralCases") : Return ret : End If
+        End If
         ret = InitilizeLoadCases()
         If (ret <> 0) Then : Errorlogprint("Problem occured on Function: InitilizeLoadCases") : Return ret : End If
         If FormInfo.SkipUnusedCases AndAlso Not FormInfo.CheckStructure Then
@@ -245,9 +248,6 @@ Public Class ETABS_Class
     Private Function InitilizeETABS() As Integer
         Dim ret As Integer
         Dim SapFileName As String = FormInfo.FileList.ETABSFile
-        'set the following flag to true to attach to a running instance of the program
-        'otherwise a new instance of the program will be started
-        Dim AttachToInstance As Boolean = False
 
         Dim ProgramPath As String = ReadSetting("ETABSProgramPath")
         SectionPropertyData = ReadSetting("SectionPropertyDataPath")
@@ -272,28 +272,20 @@ Public Class ETABS_Class
             SectionPropertyData = Alt
         End If
 
-        If AttachToInstance Then
-            Try
-                ETABSObject = DirectCast(System.Runtime.InteropServices.Marshal.GetActiveObject("CSI.ETABS.API.ETABSObject"), ETABSv1.cOAPI)
-            Catch ex As Exception
-                Errorlogprint("No running instance of the program found or failed to attach.")
-                Return -1
-            End Try
-        Else
-            Try
-                Dim myHelper As ETABSv1.cHelper = New ETABSv1.Helper
-                ETABSObject = myHelper.CreateObject(ProgramPath)
-            Catch ex As Exception
-                Errorlogprint("Cannot start a new instance of the program: " & ex.Message)
-                Return -1
-            End Try
-            If ETABSObject Is Nothing Then
-                Errorlogprint("Failed to create ETABS object.")
-                Return -1
-            End If
-            ret = ETABSObject.ApplicationStart()
-            If (ret <> 0) Then : Errorlogprint("Problem occured on :ApplicationStart") : Return ret : End If
+        'always a new ETABS instance: attaching to a running one would let Shutdown close the user's ETABS
+        Try
+            Dim myHelper As ETABSv1.cHelper = New ETABSv1.Helper
+            ETABSObject = myHelper.CreateObject(ProgramPath)
+        Catch ex As Exception
+            Errorlogprint("Cannot start a new instance of the program: " & ex.Message)
+            Return -1
+        End Try
+        If ETABSObject Is Nothing Then
+            Errorlogprint("Failed to create ETABS object.")
+            Return -1
         End If
+        ret = ETABSObject.ApplicationStart()
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :ApplicationStart") : Return ret : End If
 
         'Get a reference to cSapModel to access all OAPI classes and functions
         SapModel = ETABSObject.SapModel
@@ -444,12 +436,6 @@ Public Class ETABS_Class
         For i = 0 To SNumber - 1
             Stories(i).StoryName = SNames(i)
             '_____________________________________________________
-            'point object names on story
-            Dim PNumber As Integer
-            Dim PNames() As String = Nothing
-            ret = SapModel.PointObj.GetNameListOnStory(Stories(i).StoryName, PNumber, PNames)
-            If (ret <> 0) Then : Errorlogprint("Problem occured on :PointObj.GetNameListonStory") : Return ret : End If
-            Stories(i).StoryPointNames = If(PNames, New String() {})
             '_____________________________________________________
             'story elevation and height
             ret = SapModel.Story.GetElevation(Stories(i).StoryName, Stories(i).StoryLevel)
@@ -534,6 +520,79 @@ Public Class ETABS_Class
             End If
         Next i
         Return ret
+    End Function
+
+    '_______________________________________________________________________________________________
+    'P-Delta (working copy): nonlinear static cases with P-Delta geometric nonlinearity, linear cases with the
+    'preset P-Delta "Non-iterative Based on Mass" (database table, no OAPI setter) unless the model defines one.
+    'The composite column check takes B2 = 1, which requires a second-order analysis.
+    Private Const PDELTA_TABLE As String = "P-Delta Option Definition"
+
+    Private Function EnablePDelta() As Integer
+        Dim N As Integer, Names() As String = Nothing
+        Dim ret As Integer = SapModel.LoadCases.GetNameList(N, Names)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :LoadCases.GetNameList") : Return ret : End If
+        Dim Changed As New List(Of String)
+        For i = 0 To N - 1
+            Dim CT As ETABSv1.eLoadCaseType, ST As Integer, G As Integer
+            If SapModel.LoadCases.GetTypeOAPI(Names(i), CT, ST) <> 0 OrElse CT <> ETABSv1.eLoadCaseType.NonlinearStatic Then Continue For
+            If SapModel.LoadCases.StaticNonlinear.GetGeometricNonlinearity(Names(i), G) = 0 AndAlso G = 0 Then
+                ret = SapModel.LoadCases.StaticNonlinear.SetGeometricNonlinearity(Names(i), 1)
+                If (ret <> 0) Then : Errorlogprint("Problem occured on :StaticNonlinear.SetGeometricNonlinearity " & Names(i)) : Return ret : End If
+                Changed.Add(Names(i))
+            End If
+        Next
+        'preset P-Delta for the linear cases
+        Dim Preset As String = "(table not available)"
+        Dim Version, NR As Integer, Fields() As String = Nothing, Data() As String = Nothing
+        If SapModel.DatabaseTables.GetTableForEditingArray(PDELTA_TABLE, "", Version, Fields, NR, Data) = 0 AndAlso NR > 0 Then
+            Dim iM As Integer = Array.IndexOf(Fields, "AutoMethod")
+            If iM >= 0 Then
+                Preset = Data(iM)
+                If String.IsNullOrWhiteSpace(Preset) OrElse Preset = "None" Then
+                    Data(iM) = "Non-iterative Based on Mass"
+                    ret = SapModel.DatabaseTables.SetTableForEditingArray(PDELTA_TABLE, Version, Fields, NR, Data)
+                    Dim NF, NE, NW, NI As Integer, ImportLog As String = Nothing
+                    If ret = 0 Then ret = SapModel.DatabaseTables.ApplyEditedTables(True, NF, NE, NW, NI, ImportLog)
+                    If ret <> 0 OrElse NF + NE > 0 Then
+                        Errorlogprint("Problem occured on :preset P-Delta (" & PDELTA_TABLE & ")" & Environment.NewLine & ImportLog)
+                        Return If(ret <> 0, ret, -1)
+                    End If
+                    Preset = "Non-iterative Based on Mass"
+                End If
+            End If
+        End If
+        Errorlogprint("Info: P-Delta: nonlinear cases set to P-Delta [" & String.Join(", ", Changed) & "], preset P-Delta of linear cases: " & Preset)
+        Return 0
+    End Function
+
+    'Service drift mode: if the model has no pure lateral case, one linear static case per wind / earthquake load
+    'pattern is created in the working copy (SRV_<pattern>, factor App.config ServiceLateralFactor, default 1.0)
+    Private Function EnsureServiceLateralCases() As Integer
+        Dim N As Integer, Names() As String = Nothing
+        Dim ret As Integer = SapModel.LoadCases.GetNameList(N, Names)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :LoadCases.GetNameList") : Return ret : End If
+        If Names.Take(N).Any(Function(c) IsPureLateralCase(c)) Then Return 0
+        Dim Factor As Double = 1.0
+        Dim Setting As String = ReadSetting("ServiceLateralFactor")
+        If Not String.IsNullOrWhiteSpace(Setting) AndAlso Not Double.TryParse(Setting.Replace(","c, "."c), NumberStyles.Float, CultureInfo.InvariantCulture, Factor) Then Factor = 1.0
+        Dim NP As Integer, Patterns() As String = Nothing
+        ret = SapModel.LoadPatterns.GetNameList(NP, Patterns)
+        If (ret <> 0) Then : Errorlogprint("Problem occured on :LoadPatterns.GetNameList") : Return ret : End If
+        Dim Created As New List(Of String)
+        For i = 0 To NP - 1
+            If Patterns(i).StartsWith("~") Then Continue For
+            Dim PT As ETABSv1.eLoadPatternType
+            If SapModel.LoadPatterns.GetLoadType(Patterns(i), PT) <> 0 Then Continue For
+            If PT <> ETABSv1.eLoadPatternType.Wind AndAlso PT <> ETABSv1.eLoadPatternType.Quake Then Continue For
+            Dim CaseName As String = "SRV_" & Patterns(i)
+            ret = SapModel.LoadCases.StaticLinear.SetCase(CaseName)
+            If ret = 0 Then ret = SapModel.LoadCases.StaticLinear.SetLoads(CaseName, 1, New String() {"Load"}, New String() {Patterns(i)}, New Double() {Factor})
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :StaticLinear.SetCase/SetLoads " & CaseName) : Return ret : End If
+            Created.Add(CaseName)
+        Next
+        If Created.Count > 0 Then Errorlogprint("Info: service drift cases created (factor " & Factor & "): [" & String.Join(", ", Created) & "]")
+        Return 0
     End Function
 
     Private Function InitilizeLoadCases() As Integer
@@ -792,6 +851,7 @@ Public Class ETABS_Class
                 DisabledCases.Add(Names(i))
             End If
         Next
+        RunCases = Nothing
         Errorlogprint("Info: analysis cases not run (not used by design / drift checks): [" & String.Join(", ", DisabledCases) & "]")
         Return 0
     End Function
@@ -799,6 +859,7 @@ Public Class ETABS_Class
     'Before the final analysis of the best design: the saved model contains all results
     Public Function RestoreRunCases() As Integer
         If DisabledCases.Count > 0 Then InvalidateAnalysis()
+        RunCases = Nothing
         For Each c In DisabledCases
             Dim ret As Integer = SapModel.Analyze.SetRunCaseFlag(c, True)
             If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.SetRunCaseFlag " & c) : Return ret : End If
@@ -1048,8 +1109,11 @@ Public Class ETABS_Class
         End Try
         iter_ = Iter
         If Key IsNot Nothing AndAlso ret = 0 Then
-            Cache(Key) = New OptimizationStructure_.Member_ With {.DesignVariables = CType(Member.DesignVariables.Clone(), Integer()),
+            Dim Result As New OptimizationStructure_.Member_ With {.DesignVariables = CType(Member.DesignVariables.Clone(), Integer()),
                 .CostValue = Member.CostValue, .Penalty = Member.Penalty, .PenalizedCost = Member.PenalizedCost}
+            Cache(Key) = Result
+            'a feasible result is final: its repaired vector gives the same result (metaheuristics often regenerate it)
+            If Member.Penalty = 0 Then Cache(String.Join(",", Member.DesignVariables)) = Result
         End If
     End Sub
 
@@ -1199,9 +1263,11 @@ Public Class ETABS_Class
         Dim Run() As Boolean = Nothing
         ret = SapModel.Analyze.GetCaseStatus(N1, Names1, Status)
         If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.GetCaseStatus") : Return ret : End If
-        ret = SapModel.Analyze.GetRunCaseFlag(N2, Names2, Run)
-        If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.GetRunCaseFlag") : Return ret : End If
-        Dim RunCases As New HashSet(Of String)(Enumerable.Range(0, N2).Where(Function(k) Run(k)).Select(Function(k) Names2(k)))
+        If RunCases Is Nothing Then         'changes only with SetRunCases / RestoreRunCases
+            ret = SapModel.Analyze.GetRunCaseFlag(N2, Names2, Run)
+            If (ret <> 0) Then : Errorlogprint("Problem occured on :Analyze.GetRunCaseFlag") : Return ret : End If
+            RunCases = New HashSet(Of String)(Enumerable.Range(0, N2).Where(Function(k) Run(k)).Select(Function(k) Names2(k)))
+        End If
         Dim Failed = Enumerable.Range(0, N1).Where(Function(k) RunCases.Contains(Names1(k)) AndAlso Status(k) <> 4).Select(Function(k) Names1(k)).ToList()
         AnalysisFailed = Failed.Count > 0
         If AnalysisFailed Then Errorlogprint("Warning: analysis not finished for [" & String.Join(", ", Failed) & "], design penalized")
@@ -1416,16 +1482,13 @@ Public Class ETABS_Class
 
         For i = 0 To Points.Length - 1
             Points(i).PointDisp = New FramePointStoryGroupStructures_.LoadCaseDisp_ With {
-                .LoadCaseName = New List(Of String), .U1 = New List(Of Double), .U2 = New List(Of Double), .U3 = New List(Of Double),
-                .R1 = New List(Of Double), .R2 = New List(Of Double), .R3 = New List(Of Double)}
+                .U1 = New List(Of Double), .U2 = New List(Of Double)}
         Next i
         For k = 0 To NumberResults - 1
             Dim i As Integer
             If Not PointIndex.TryGetValue(Obj(k), i) Then Continue For
             With Points(i).PointDisp
-                .LoadCaseName.Add(LoadCase(k))
-                .U1.Add(U1(k)) : .U2.Add(U2(k)) : .U3.Add(U3(k))
-                .R1.Add(R1(k)) : .R2.Add(R2(k)) : .R3.Add(R3(k))
+                .U1.Add(U1(k)) : .U2.Add(U2(k))
             End With
         Next k
         Return ret
@@ -1506,40 +1569,52 @@ Public Class ETABS_Class
         Dim ret As Integer = G1_1_Design()
         If (ret <> 0) Then : Errorlogprint("Problem occured on :G1_1_Design") : Return ret : End If
         Try
+            'one call for the whole model (instead of one per group), results grouped by the design groups
+            Dim NumberItems As Integer
+            Dim FrameName As String() = Nothing
+            Dim Ratio As Double() = Nothing
+            Dim RatioType As Integer() = Nothing
+            Dim Location As Double() = Nothing
+            Dim ComboName As String() = Nothing
+            Dim ErrorSummary As String() = Nothing
+            Dim WarningSummary As String() = Nothing
+            Dim ByGroup As New Dictionary(Of String, List(Of Integer))
+            If SteelFrameDesignGroupIDs.Any(Function(id) Not (CompositeActive AndAlso Groups(id).IsComposite)) Then
+                If SapModel.DesignSteel.GetSummaryResults("All", NumberItems, FrameName, Ratio, RatioType, Location, ComboName, ErrorSummary, WarningSummary, ETABSv1.eItemType.Group) <> 0 Then NumberItems = 0
+                For j = 0 To NumberItems - 1
+                    Dim F As Integer
+                    If Not FrameIndex.TryGetValue(FrameName(j), F) OrElse Frames(F).GroupName Is Nothing Then Continue For
+                    If Not ByGroup.ContainsKey(Frames(F).GroupName) Then ByGroup(Frames(F).GroupName) = New List(Of Integer)
+                    ByGroup(Frames(F).GroupName).Add(j)
+                Next
+            End If
+            ret = 0
             For i = 0 To SteelFrameDesignGroupIDs.Count - 1
                 Dim ID As Integer = SteelFrameDesignGroupIDs(i)
                 If CompositeActive AndAlso Groups(ID).IsComposite Then Continue For
-                Dim NumberItems As Integer
-                Dim FrameName As String() = Nothing
-                Dim Ratio As Double() = Nothing
-                Dim RatioType As Integer() = Nothing
-                Dim Location As Double() = Nothing
-                Dim ComboName As String() = Nothing
-                Dim ErrorSummary As String() = Nothing
-                Dim WarningSummary As String() = Nothing
-                ret = SapModel.DesignSteel.GetSummaryResults(Groups(ID).GroupName, NumberItems, FrameName, Ratio, RatioType, Location, ComboName, ErrorSummary, WarningSummary, ETABSv1.eItemType.Group)
-                If ret <> 0 OrElse NumberItems = 0 Then
+                Dim Items As List(Of Integer) = Nothing
+                If Not ByGroup.TryGetValue(Groups(ID).GroupName, Items) Then
                     Errorlogprint("Warning: no steel design results for group " & Groups(ID).GroupName)
                     If updateDesignSections Then Return -1
                     AnalysisFailed = True
                     Return 0
                 End If
-                Groups(ID).PMMRatio = Ratio.Max()
-                Dim ErrorCount As Integer = ErrorSummary.Count(Function(c) Not String.IsNullOrEmpty(c))
-                If ErrorCount > 0 Then Groups(ID).PMMRatio += 1 + ErrorCount / NumberItems
+                Groups(ID).PMMRatio = Items.Max(Function(j) Ratio(j))
+                Dim ErrorCount As Integer = Items.Where(Function(j) Not String.IsNullOrEmpty(ErrorSummary(j))).Count()
+                If ErrorCount > 0 Then Groups(ID).PMMRatio += 1 + ErrorCount / Items.Count
 
                 If updateDesignSections Then
                     'largest (by area) design section of the group
                     Dim BestName As String = Nothing
                     Dim BestArea As Double = Double.NegativeInfinity
-                    For j = 0 To NumberItems - 1
+                    For Each j In Items
                         Dim PropName As String = Nothing
                         ret = SapModel.DesignSteel.GetDesignSection(FrameName(j), PropName)
                         If (ret <> 0) Then : Errorlogprint("Problem occured on :DesignSteel.GetDesignSection") : Return ret : End If
                         Dim SectID As Integer = WSections.FindIndex(Function(c) c.SectionName = PropName)
                         Dim Area As Double = If(SectID >= 0, WSections(SectID).Area, 0)
                         If Area > BestArea Then : BestArea = Area : BestName = PropName : End If
-                    Next j
+                    Next
                     Groups(ID).DesignSecName = BestName
                     Groups(ID).DesignSecID = WSections.FindIndex(Function(c) c.SectionName = BestName)
                 End If
@@ -1584,7 +1659,7 @@ Public Class ETABS_Class
                 If Not Blocks.ContainsKey(key) Then Blocks(key) = New List(Of Integer)
                 Blocks(key).Add(k)
             Next
-            Dim SecID As Integer = CompositeSectionID(Groups(ID).GroupName)
+            Dim SecID As Integer = If(Assigned IsNot Nothing AndAlso Assigned(v) >= 0, Assigned(v), CompositeSectionID(Groups(ID).GroupName))
             If SecID < 0 Then : Errorlogprint("Composite section of group " & Groups(ID).GroupName & " not found") : Return -1 : End If
             Dim Detailing As Double = Encased(SecID).DetailingRatio()
             Dim Strength As Double = 0
@@ -1643,7 +1718,7 @@ Public Class ETABS_Class
     'Steel design: weight of the design groups [kN]
     'Composite columns: relative cost = steel + rebar (per kN) + concrete (per m³) + formwork (per m²)
     Public Function CostStProfile(ByRef Sect_Ind() As Integer) As Double
-        StructureWeight = 0
+        Dim StructureWeight As Double = 0
         Dim RebarWeight As Double = 0, ConcreteVolume As Double = 0, FormworkArea As Double = 0
         For i = 0 To SteelFrameDesignGroupIDs.Count - 1
             Dim G = Groups(SteelFrameDesignGroupIDs(i))
@@ -1781,10 +1856,6 @@ Public Class ETABS_Class
         Errorlogprint("Info: composite columns: General sections during the search, " &
                       If(UseEncasedSections, "final design checked with ETABS encased sections and the ETABS composite column design", "no ETABS composite check (needs ETABS 20+)"))
         Return 0
-    End Function
-
-    Private Function EnsureCompositeSection(ByVal SecID As Integer) As Integer
-        Return EnsureCompositeSections({SecID})
     End Function
 
     'Creates the General composite sections that do not exist yet
@@ -2002,14 +2073,6 @@ Public Class ETABS_Class
         If (ret <> 0) Then : Errorlogprint("Problem occured on :PropFrame.SetModifiers " & Name) : Return ret : End If
         CreatedSections.Add(Name)
         Return ret
-    End Function
-
-    Public Function CostSlab() As Double
-        Return 0
-    End Function
-
-    Public Function CostStud() As Double
-        Return 0
     End Function
 
     Public Sub Errorlogprint(ByVal msg As String)

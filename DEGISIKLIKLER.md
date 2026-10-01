@@ -5,6 +5,68 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-01 — Aşama 9: P-Delta, servis ötelemesi, birim maliyetler, inceleme Öncelik 3–5
+
+### P-Delta (kullanıcı isteği)
+- Formda *P-Delta analysis* seçeneği eklendi (varsayılan açık; `FormInfo.PDelta`, eski yedeklerde kapalı). Değişiklikler yalnızca çalışma kopyasında yapılıyor:
+  - Nonlineer statik durumlar: `StaticNonlinear.SetGeometricNonlinearity(…, 1)` (P-Delta). 525M modelinde 3 dayanım durumu "None"dan "P-Delta"ya alındı.
+  - Doğrusal durumlar: ön tanımlı P-Delta "Non-iterative Based on Mass". OAPI'de setter yok; `P-Delta Option Definition` tablosu kullanılıyor. Modelde başka bir yöntem tanımlıysa korunuyor.
+- Analiz süresi değişmedi (yaklaşık 11 s). ETABS çıktısında `GEOMETRIC NONLINEARITY = P-DELTA` ve `~P-Delta` durumu görünüyor.
+- İç kompozit kontroldeki B2 = 1 kabulü artık modelle tutarlı.
+
+### Servis öteleme modu (kullanıcı isteği)
+- "Lateral load cases (service, unfactored)" artık formda **varsayılan**.
+- Modelde saf yatay yük durumu yoksa (525M), çalışma kopyasında her rüzgâr ve deprem deseni için `SRV_<desen>` doğrusal durumu oluşturuluyor (`EnsureServiceLateralCases`).
+  - Yük katsayısı `App.config` > `ServiceLateralFactor` (varsayılan 1,0).
+  - `~` ile başlayan iç desenler atlanıyor ve desen tipi okunamazsa o desen geçiliyor. Tanılama sırasında okunamayan desen tipi yüzünden yanlış bir `SRV_~LLRF` durumu oluşmuştu; bu yüzden eklendi.
+- Bu modda `SkipUnusedCases` etkili oluyor: öteleme yalnızca SRV durumlarını kullanıyor.
+
+### Birim maliyetler (kullanıcı isteği)
+- Yer tutucular yerine dayanaklı varsayılanlar (çelik = 1): **donatı 0,5 /kN, beton 0,6 /m³, kalıp 0,15 /m²**.
+- Varsayım: uygulanmış çelik 2,0 $/kg (204 $/kN), donatı 1,0 $/kg (102 $/kN), C30 beton 120 $/m³, kolon kalıbı 30 $/m².
+- Varsayımlar kod yorumunda, `EncasedSections.xml` dosyasında, form notunda ve kılavuzda yazılı.
+
+### Kod inceleme Öncelik 3: algoritmalar
+- **HS perde ayarı:** her zaman 1 … bant genişliği (aralığın %1'i, en az 1) kadar kesit, aşağı veya yukarı. Önceden vakaların yaklaşık %40'ında 0 adım çıkıyordu.
+- **Normal dağılım:** Levy uçuşu, Dandelion ve `Steplength`, [−3, 3] düzgün dağılım yerine tohumlu normal dağılım (`NormalRnd`, Box-Muller) kullanıyor.
+- **Levy uçuşu:**
+  - `RZD` reddi `|RZD| < 0,01` olarak düzeltildi; önceden tüm negatif değerleri reddediyordu.
+  - Küçük rastgele yürüyüş −2 … +2 aralığında; önceden yalnızca −2 ve −1 çıkıyordu.
+- **Dandelion:** aşamalar sürekli konumla yürüyor ve yalnızca sonda yuvarlanıyor. `MaxFuncEvaluation = 1` iken sıfıra bölme önlendi.
+
+### Kod inceleme Öncelik 4: ETABS çağrıları
+- Çelik tasarım sonuçları grup başına bir çağrı yerine tek `GetSummaryResults("All")` çağrısıyla okunuyor.
+- Kompozit grubun kesiti `GetSection` API çağrısı yerine `Assigned()` içinden alınıyor.
+- Analiz edilen durum listesi (`GetRunCaseFlag`) önbelleğe alınıyor ve yalnızca `SetRunCases` / `RestoreRunCases` ile yenileniyor.
+- Uygun (ceza 0) sonuç, düzeltilmiş vektörün anahtarıyla da önbelleğe yazılıyor.
+- Başlangıçta kat başına yapılan gereksiz `PointObj.GetNameListOnStory` çağrısı kaldırıldı.
+
+### Kod inceleme Öncelik 5: temizlik
+- Silinen ölü kod:
+  - `encasedSections`, tekil `EnsureCompositeSection`, `CostSlab`, `CostStud`, `StructureWeight` alanı (yerel değişken oldu).
+  - Hiç çalışmayan `AttachToInstance` dalı. Bu dal, kullanıcının açık ETABS'ini de kapatabilirdi.
+  - `Close` içinde hesaplanıp kullanılmayan süre metinleri. Yerine günlükte `Info: run time …` satırı var.
+  - Yer değiştirme listelerinden hiç okunmayan `LoadCaseName`, `U3`, `R1`, `R2`, `R3`.
+  - `OptimizationClass.BackUp`, `FormInfo_.BackUp`, `FrameInfo_.CompositeBeamDesignCode`.
+- `Structures.vb`'den silinen tipler: `MaterialStructures_`, `RectangularencasedISection_`, `Rebar_`, `Area_`, `LoadCaseForces_`, `Numbers_`, `OptimizationStructure_.TimerInfo`, `ParameterGeneral_`, `Combinations_.DesignComp*`, `Frame_.FrameSection/Frameforces`, `Group_.GroupSection/GroupEncasedSection`, `Story_.StoryPointNames`, yorum satırındaki SAP2000 blokları.
+  - Silinen alanlar eski yedeklerde varsa XmlSerializer onları yok sayıyor. Yeniden adlandırma yapılmadı (`HarmornySearch`, `Lamda` korunuyor).
+- Kullanılmayan `Imports System.Xml` (ETABSClass, OptimizationClass) ve `Imports System.Linq` kaldırıldı.
+- Satır sonları bütün `.vb` dosyalarında tutarlı (CRLF).
+
+### GUI testi (formun kendisi)
+Test programı gerçek `MainForm`'u açtı, alanları doldurup **Start** düğmesine bastı (`PerformClick`). Arka plandaki bir yardımcı çıkan mesaj kutularının metnini kaydedip kapattı.
+- **Ayarlar:** 525M, kompozit, bellek 6, 40 analiz, tohum 11. Diğerleri formun varsayılanları: servis öteleme, P-Delta, birleşik düzeltme, AISC 360-22, maliyetler 1 / 0,5 / 0,6 / 0,15.
+- **Sonuç:** Formun akışı (Control → Init → döngü → Opt_Finalize → Close) hatasız çalıştı. 44 analiz, 16 dk 45 s.
+  - Form: en iyi maliyet **7160,02**, ilerleme %100, model sayıları 234 düğüm / 525 eleman / 14 grup / 289 kesit.
+  - Tek mesaj kutusu "API script completed successfully." oldu.
+- **P-Delta:** 3 nonlineer duruma uygulandı, ön tanımlı P-Delta "Non-iterative Based on Mass". `SRV_WindX` ve `SRV_WindY` oluşturuldu; öteleme yalnızca bunlarla kontrol edildi.
+- **Uyarı:** Bir aday tasarım P-Delta ile rüzgâr durumlarında yakınsamadı ve ceza aldı. Bu beklenen davranış; hafif kolonlu tasarım kararsız.
+- **Final:** göreli öteleme 0,922, tepe ötelemesi 0,503, çelik oranı 0,711, kompozit dayanım 0,793, detay 0,963, kolon-kolon 1,000, kiriş-kolon 0,952.
+- **ETABS kompozit doğrulaması:** 10 grubun hepsinde PMM < 1 (en büyük 0,905). İç çözücü ETABS'in %0,5–10 altında.
+- **Temizlik:** `_best.EDB` ve sonuç XML'i yazıldı; arkada ETABS kalmadı.
+
+---
+
 ## 2026-10-01 — Aşama 8: Kod inceleme düzeltmeleri (KOD_INCELEME_RAPORU, Öncelik 1 ve 2)
 
 ### Sonucu veya süreyi etkileyen hatalar

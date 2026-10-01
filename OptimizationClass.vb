@@ -1,5 +1,4 @@
 ﻿Imports System.IO
-Imports System.Xml
 Imports System.Xml.Serialization
 
 Public Class OptimizationClass
@@ -12,7 +11,6 @@ Public Class OptimizationClass
     Public Histories As List(Of OptimizationStructure_.History_)
     Public FormInfo As MiscellaneousStructures.FormInfo_
     Public FileList As MiscellaneousStructures.FileList_
-    Public BackUp As Boolean
     Public iter As Integer
     Public ILoop As Integer
     Public Update As Boolean
@@ -21,6 +19,7 @@ Public Class OptimizationClass
     Public FinalCheck As OptimizationStructure_.Member_    'final analysis of the best design (all cases, no repair)
     Public FinalConstraints As List(Of String)             'governing constraint values of that analysis
     Private LastUpdatedID As Integer = -1                  'memory position replaced by the last Eval (-1: none)
+    Private Const PITCH_BANDWIDTH As Double = 0.01         'HS pitch adjustment: up to 1 % of the variable range (at least 1 section)
 
     Public Sub Init_HarmonySearch()
         ReDim FormInfo.OptInfo.HarmonySearch.ParVec(Memory.Count - 1)
@@ -75,7 +74,10 @@ Public Class OptimizationClass
                 If Rnd() > PAR Then
                     Member.DesignVariables(i) = Memory(ID).DesignVariables(i)
                 Else
-                    Member.DesignVariables(i) = Memory(ID).DesignVariables(i) + CInt(Math.Round((Ub(i) - Lb(i)) * 0.02 * (Rnd() - 0.5)))
+                    'pitch adjustment: 1 .. bandwidth sections up or down (round(0.01 range * (Rnd-0.5)) was 0 in ~40 % of the cases)
+                    Dim Bandwidth As Integer = Math.Max(1, CInt(Math.Round(PITCH_BANDWIDTH * (Ub(i) - Lb(i)))))
+                    Dim StepSize As Integer = 1 + CInt(Int(Rnd() * Bandwidth))
+                    Member.DesignVariables(i) = Memory(ID).DesignVariables(i) + If(Rnd() < 0.5, -StepSize, StepSize)
                 End If
             End If
         Next
@@ -150,30 +152,38 @@ Public Class OptimizationClass
         If ret <> 0 Then : LogError("Problem occured in :Eval") : Exit Sub : End If
     End Sub
 
+    'Dandelion optimizer (Zhao et al. 2022). The stages work on a continuous position X; the design variables are
+    'rounded once at the end (rounding after every stage lost the small moves).
     Private Sub Main_Dandelion(ByRef Imem As Integer, ByRef ret As Integer)
         Dim Member As New OptimizationStructure_.Member_
         ReDim Member.DesignVariables(Ub.Count - 1)
+        Dim T As Double = Math.Max(FormInfo.OptInfo.MaxFuncEvaluation, 2)          'T = 1 divided by zero in a
+        Dim X(Ub.Count - 1) As Double
+        Dim Clip = Sub()
+                       For j = 0 To X.Length - 1
+                           X(j) = Math.Min(Math.Max(X(j), Lb(j)), Ub(j))
+                       Next
+                   End Sub
         'Rising stage
-        Dim alpha As Double = Rnd() * ((1 / FormInfo.OptInfo.MaxFuncEvaluation ^ 2) * iter ^ 2 - 2 / FormInfo.OptInfo.MaxFuncEvaluation * iter + 1) ' eq.(8) in this paper
-        Dim a As Double = -1 / (FormInfo.OptInfo.MaxFuncEvaluation ^ 2 - 2 * FormInfo.OptInfo.MaxFuncEvaluation + 1)
+        Dim alpha As Double = Rnd() * ((1 / T ^ 2) * iter ^ 2 - 2 / T * iter + 1) ' eq.(8) in this paper
+        Dim a As Double = -1 / (T ^ 2 - 2 * T + 1)
         Dim b As Double = -2 * a
         Dim c As Double = 1 - a - b
         Dim k As Double = 1 - Rnd() * (c + a * iter ^ 2 + b * iter) ' eq.(11) In this paper
         For idv = 0 To Ub.Count - 1
-            Dim rndn As Double = -3 + 6 * Rnd()
-            If rndn < 1.5 Then
-                Dim lamb As Double = Math.Max(Math.Abs(-3 + Rnd() * 6), 0.000001)
+            If NormalRnd() < 1.5 Then
+                Dim lamb As Double = Math.Max(Math.Abs(NormalRnd()), 0.000001)
                 Dim theta As Double = (2 * Rnd() - 1) * Math.PI
                 Dim row As Double = 1 / Math.Exp(theta)
                 Dim vx As Double = row * Math.Cos(theta)
                 Dim vy As Double = row * Math.Sin(theta)
                 Dim newv As Double = Rnd() * (Ub(idv) - Lb(idv)) + Lb(idv)
-                Member.DesignVariables(idv) = Memory(Imem).DesignVariables(idv) + alpha * vx * vy * Lognpdf(lamb, 0, 1) * (newv - Memory(Imem).DesignVariables(idv)) ' eq.(5) in this paper
+                X(idv) = Memory(Imem).DesignVariables(idv) + alpha * vx * vy * Lognpdf(lamb, 0, 1) * (newv - Memory(Imem).DesignVariables(idv)) ' eq.(5) in this paper
             Else
-                Member.DesignVariables(idv) = Memory(Imem).DesignVariables(idv) * k
+                X(idv) = Memory(Imem).DesignVariables(idv) * k
             End If
         Next idv
-        UBLBCheck(Member)
+        Clip()
 
         'Decline stage
         For idv = 0 To Ub.Count - 1
@@ -182,17 +192,20 @@ Public Class OptimizationClass
                 dandelions_mean += Memory(i).DesignVariables(idv)
             Next i
             dandelions_mean /= Memory.Count
-            Dim beta As Double = -3 + Rnd() * 6
-            Member.DesignVariables(idv) = Member.DesignVariables(idv) - beta * alpha * (dandelions_mean - beta * alpha * Member.DesignVariables(idv)) ' eq.(13) In this paper
+            Dim beta As Double = NormalRnd()
+            X(idv) = X(idv) - beta * alpha * (dandelions_mean - beta * alpha * X(idv)) ' eq.(13) In this paper
         Next idv
-        UBLBCheck(Member)
+        Clip()
 
         'Landing stage
         Dim Elite() As Integer = Leader().DesignVariables
         For idv = 0 To Ub.Count - 1
-            Member.DesignVariables(idv) = Math.Floor(Elite(idv) + Steplength(1.5) * alpha * (Elite(idv) - Member.DesignVariables(idv) * (2 * iter / FormInfo.OptInfo.MaxFuncEvaluation))) ' eq.(15) In this paper
+            X(idv) = Elite(idv) + Steplength(1.5) * alpha * (Elite(idv) - X(idv) * (2 * iter / T)) ' eq.(15) In this paper
         Next idv
-        UBLBCheck(Member)
+        Clip()
+        For idv = 0 To Ub.Count - 1
+            Member.DesignVariables(idv) = CInt(Math.Round(X(idv)))
+        Next idv
 
         ' Calculated all dandelion seeds' fitness values
         Eval(Member, Imem, ret)
@@ -239,10 +252,10 @@ Public Class OptimizationClass
         'This Is a simple way of implementing Levy flights
         'For standard random walks, use step=1;
 
-        Dim URN As Double = (-3 + 6 * Rnd()) * Sigma
-        Dim RZD As Double = -3 + 6 * Rnd()
-        Do While RZD < 0.01
-            RZD = -3 + 6 * Rnd()
+        Dim URN As Double = NormalRnd() * Sigma
+        Dim RZD As Double = NormalRnd()
+        Do While Math.Abs(RZD) < 0.01          'was RZD < 0.01: rejected every negative value
+            RZD = NormalRnd()
         Loop
         'Levy flights by Mantegna's algorithm	
         Dim STEPLevy As Double = URN / (Math.Abs(RZD)) ^ (1 + Beta)
@@ -250,15 +263,15 @@ Public Class OptimizationClass
         'when the solution Is the best solution, it remains unchanged.     
         Dim Best() As Integer = Leader().DesignVariables
         Dim STSZ As Double = 0.01 * STEPLevy * (Member.DesignVariables(idv) - Best(idv))
-        Dim RKD As Double = -3 + 6 * Rnd()
+        Dim RKD As Double = NormalRnd()
         'Here the factor 0.01 comes from the fact that L/100 should the typical
         'step Size of walks/flights where L Is the typical lenghtscale; 
         'otherwise, Levy flights may become too aggresive/efficient, 
         'which makes New solutions (even) jump out side of the design domain (And thus wasting evaluations).
         'Now the actual random walks Or flights
+        'small random walk of -2 .. +2 sections in 40 % of the cases (Floor(-2 + 4 RVD) with RVD <= 0.4 gave only -2 / -1)
         Dim int1 As Integer = 0
-        Dim RVD As Double = Rnd()
-        If (RVD <= 0.4) Then int1 = Math.Floor(-2 + 4 * RVD)
+        If Rnd() <= 0.4 Then int1 = CInt(Int(Rnd() * 5)) - 2
         id = Best(idv) + Math.Floor(STSZ * RKD) + int1
         Return id
     End Function
@@ -268,10 +281,16 @@ Public Class OptimizationClass
         Dim num As Double = (1 + beta) * Math.Sin(Math.PI * beta / 2)
         Dim den As Double = 1.6168504121556959 'Gamma((1 + beta) / 2) * beta * 2 ^ ((beta - 1) / 2)
         Dim sigma_u As Double = (num / den) ^ (1 / beta)
-        Dim u As Double = (-3 + 6 * Rnd()) * sigma_u 'Random('Normal',0,sigma_u,n,m);
-        Dim v As Double = -3 + 6 * Rnd() ' Random('Normal',0,1,n,m);
-        Return u / (Math.Abs(v) ^ (1 / beta)) * 0.1
+        Dim u As Double = NormalRnd() * sigma_u 'Random('Normal',0,sigma_u,n,m);
+        Dim v As Double = NormalRnd() ' Random('Normal',0,1,n,m);
+        Return u / (Math.Max(Math.Abs(v), 0.000001) ^ (1 / beta)) * 0.1
+    End Function
 
+    'Standard normal random number (Box-Muller) from the seeded VB generator, so a seed repeats the run
+    Private Shared Function NormalRnd() As Double
+        Dim u1 As Double = 1.0 - Rnd()           '(0, 1]
+        Dim u2 As Double = Rnd()
+        Return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2)
     End Function
     Private Function Lognpdf(ByVal x As Double, ByVal mu As Double, ByVal sigma As Double) As Double
         Return 1 / (x * sigma * Math.Sqrt(2 * Math.PI)) * Math.Exp(-(Math.Log(x) - mu) ^ 2 / (2 * sigma ^ 2))

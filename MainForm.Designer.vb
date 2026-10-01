@@ -60,6 +60,7 @@ Partial Class MainForm
         Me.Label26 = New System.Windows.Forms.Label()
         Me.CompositeCodeBox = New System.Windows.Forms.ComboBox()
         Me.SkipCases = New System.Windows.Forms.CheckBox()
+        Me.PDeltaBox = New System.Windows.Forms.CheckBox()
         Me.GroupBox9 = New System.Windows.Forms.GroupBox()
         Me.Label28 = New System.Windows.Forms.Label()
         Me.RepairModeBox = New System.Windows.Forms.ComboBox()
@@ -447,9 +448,10 @@ Partial Class MainForm
         Me.GroupBox8.Controls.Add(Me.Label26)
         Me.GroupBox8.Controls.Add(Me.CompositeCodeBox)
         Me.GroupBox8.Controls.Add(Me.SkipCases)
+        Me.GroupBox8.Controls.Add(Me.PDeltaBox)
         Me.GroupBox8.Location = New System.Drawing.Point(275, 0)
         Me.GroupBox8.Name = "GroupBox8"
-        Me.GroupBox8.Size = New System.Drawing.Size(400, 220)
+        Me.GroupBox8.Size = New System.Drawing.Size(400, 245)
         Me.GroupBox8.TabIndex = 26
         Me.GroupBox8.TabStop = False
         Me.GroupBox8.Text = "Analysis / Composite Options"
@@ -489,7 +491,7 @@ Partial Class MainForm
         '
         Me.DriftCombos.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
         Me.DriftCombos.FormattingEnabled = True
-        Me.DriftCombos.Items.AddRange(New Object() {"All cases and combos", "Lateral (wind / earthquake) only", "Lateral load cases only (service)"})
+        Me.DriftCombos.Items.AddRange(New Object() {"All cases and combos", "Lateral (wind / earthquake) only", "Lateral load cases (service, unfactored)"})
         Me.DriftCombos.Location = New System.Drawing.Point(180, 82)
         Me.DriftCombos.Name = "DriftCombos"
         Me.DriftCombos.Size = New System.Drawing.Size(210, 24)
@@ -1095,6 +1097,18 @@ Partial Class MainForm
         Me.SkipCases.Text = "Skip analysis cases not used by design / drift checks"
         Me.SkipCases.UseVisualStyleBackColor = True
         '
+        'PDeltaBox
+        '
+        Me.PDeltaBox.AutoSize = True
+        Me.PDeltaBox.Checked = True
+        Me.PDeltaBox.CheckState = System.Windows.Forms.CheckState.Checked
+        Me.PDeltaBox.Location = New System.Drawing.Point(8, 214)
+        Me.PDeltaBox.Name = "PDeltaBox"
+        Me.PDeltaBox.Size = New System.Drawing.Size(385, 20)
+        Me.PDeltaBox.TabIndex = 9
+        Me.PDeltaBox.Text = "P-Delta analysis (nonlinear cases + preset P-Delta)"
+        Me.PDeltaBox.UseVisualStyleBackColor = True
+        '
         'GroupBox9
         '
         Me.GroupBox9.Controls.Add(Me.Label28)
@@ -1149,7 +1163,7 @@ Partial Class MainForm
         Me.GroupBox10.Controls.Add(Me.Label35)
         Me.GroupBox10.Controls.Add(Me.CostFormworkBox)
         Me.GroupBox10.Controls.Add(Me.Label36)
-        Me.GroupBox10.Location = New System.Drawing.Point(275, 226)
+        Me.GroupBox10.Location = New System.Drawing.Point(275, 251)
         Me.GroupBox10.Name = "GroupBox10"
         Me.GroupBox10.Size = New System.Drawing.Size(400, 200)
         Me.GroupBox10.TabIndex = 27
@@ -1230,7 +1244,7 @@ Partial Class MainForm
         Me.Label36.Name = "Label36"
         Me.Label36.Size = New System.Drawing.Size(385, 44)
         Me.Label36.TabIndex = 8
-        Me.Label36.Text = "Defaults from EncasedSections.xml are placeholders: enter the price ratios of your study."
+        Me.Label36.Text = "Defaults: steel 2.0 $/kg, rebar 1.0 $/kg, concrete 120 $/m3, formwork 30 $/m2 (steel = 1). Use the price ratios of your study."
         '
         'MainForm
         '
@@ -1345,6 +1359,7 @@ Partial Class MainForm
     Friend WithEvents Label26 As Label
     Friend WithEvents CompositeCodeBox As ComboBox
     Friend WithEvents SkipCases As CheckBox
+    Friend WithEvents PDeltaBox As CheckBox
     Friend WithEvents GroupBox9 As GroupBox
     Friend WithEvents Label28 As Label
     Friend WithEvents RepairModeBox As ComboBox

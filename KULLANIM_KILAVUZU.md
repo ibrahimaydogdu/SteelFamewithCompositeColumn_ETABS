@@ -37,7 +37,7 @@ Program seçilen modeli **değiştirmez**:
   - Başlangıç sınırları için bütün çelik kirişlere `BeamSectionList`, kolonlara `ColumnSectionList` atanır ve ETABS tasarımı yapılır.
   - Listeler modelde yoksa kütüphanedeki **tüm W kesitleriyle otomatik oluşturulur**; ilk tasarım bu durumda uzun sürebilir.
   - Daha kısa bir liste kullanmak için listeyi ETABS'te kendiniz tanımlayın (Define > Section Properties > Frame Sections > Auto Select List). Ardından adını `App.config` dosyasına yazın. Örneğin 525M modelinde hazır bulunan `A-LatBm` / `A-LatCol` listeleri kullanılabilir.
-- **Analiz:** Kompozit kolonlarda B2 = 1 kabul edilir (`EncasedSections.xml`). Bu nedenle analizde P-Delta etkisi olmalıdır (nonlineer statik ya da P-Delta seçeneği açık).
+- **Analiz:** Kompozit kolonlarda B2 = 1 kabul edilir (`EncasedSections.xml`), bu yüzden analizde P-Delta etkisi olmalıdır. Formdaki *P-Delta analysis* seçeneği (varsayılan açık) bunu çalışma kopyasında sağlar (bkz. 3. bölüm); kendi modelinizi değiştirmez.
 
 ## 3. Form
 **Genel sekme**
@@ -71,11 +71,17 @@ Program seçilen modeli **değiştirmez**:
   - *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
     - "All cases and combos": modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
     - "Lateral (wind / earthquake) only": yalnızca rüzgâr veya deprem içeren kombinasyonlar; bunlar yoksa bu tür yük durumları.
-    - "Lateral load cases only (service)": yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
+    - **"Lateral load cases (service, unfactored)"** (varsayılan): yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
+      - Modelde böyle bir durum yoksa program, çalışma kopyasında her rüzgâr ve deprem yük deseni için katsayısız bir doğrusal durum (`SRV_<desen>`) oluşturur ve günlüğe yazar.
+      - Durumların yük katsayısı `App.config` > `ServiceLateralFactor` ile ayarlanır (varsayılan 1,0). Örneğin ASCE 7'deki servis rüzgârı için 0,6 ya da 0,7 kullanılabilir.
+      - Deprem desenlerinde bu durumlar dayanım düzeyi elastik ötelemeyi verir; yönetmeliğin Cd/Ie büyütmesi uygulanmaz.
       - Katsayısız (servis) öteleme kontrolü içindir. Modelde böyle durumlar tanımlı olmalıdır.
     - **Dikkat:** İlk iki mod, katsayılı dayanım kombinasyonlarını da (ör. 1,2D + 1,6W) kullanır. Öteleme sınırları genellikle servis yükleri içindir; bu modlarda öteleme fazla tahmin edilip kolonlar gereğinden büyük çıkabilir.
     - Not: ETABS analizi yine tüm durumları çözer; kazanç sonuç okuma aşamasındadır.
   - *Random seed*: 0 girilirse her koşu farklı olur (saat bazlı). Pozitif bir sayı aynı koşuyu tekrarlar. Kullanılan tohum pencere başlığında, `ErrorLog.txt` dosyasında ve sonuç XML'inde yazar. Çoklu koşu için alanı 0 bırakıp programı tekrar çalıştırın.
+  - *P-Delta analysis (nonlinear cases + preset P-Delta)* (varsayılan açık): çalışma kopyasında nonlineer statik durumlara P-Delta geometrik nonlineerliği atanır.
+    - Doğrusal durumlar için ön tanımlı P-Delta "Non-iterative Based on Mass" olarak ayarlanır (modelde başka bir yöntem tanımlıysa o korunur).
+    - Değişiklikler günlükte `Info: P-Delta: …` satırıyla listelenir. Eski yedeklerden devam edilirse bu seçenek kapalı okunur.
   - *Skip analysis cases not used by design / drift checks* (varsayılan açık): dayanım ve sehim kombinasyonlarında ve öteleme kontrolünde kullanılmayan yük durumları çözülmez.
     - Bu durumların ön koşulları, Modal durumlar ve ETABS iç durumları (`~…`) her zaman çözülür.
     - Kapatılan durumlar `ErrorLog.txt` dosyasında listelenir.
@@ -110,9 +116,17 @@ Birim maliyetler formda girilir: **Structural Properties** sekmesi → **Composi
 | Alan | Birim | Varsayılan |
 |---|---|---|
 | *Steel* | kN çelik başına | 1 |
-| *Rebar* | kN donatı başına | 0,8 |
-| *Concrete* | m³ beton başına | 0,8 |
-| *Formwork* | m² kalıp başına (kolon çevresi × boy) | 0,2 |
+| *Rebar* | kN donatı başına | 0,5 |
+| *Concrete* | m³ beton başına | 0,6 |
+| *Formwork* | m² kalıp başına (kolon çevresi × boy) | 0,15 |
+
+Varsayılanların dayandığı birim fiyat varsayımları:
+- uygulanmış yapısal çelik 2,0 $/kg (≈ 204 $/kN),
+- donatı 1,0 $/kg (≈ 102 $/kN),
+- yerine konmuş C30 beton 120 $/m³,
+- kolon kalıbı 30 $/m².
+
+Oranlar çelik = 1 alınarak bu fiyatlara bölünerek bulundu.
 
 - Form açılırken alanlar `EncasedSections.xml` dosyasındaki değerlerle dolar. Koşuda formdaki değerler kullanılır ve `ErrorLog.txt` dosyasına `Info: unit costs (form) …` satırıyla yazılır.
 - Değerler göreli olmalıdır; birimleri ve oranları çalışmanızın fiyatlarından türetin. Örneğin çelik 1 alınırsa diğerleri çeliğe oranla verilir.
@@ -120,7 +134,7 @@ Birim maliyetler formda girilir: **Structural Properties** sekmesi → **Composi
 - Değerler yedeğe (`BackUp.xml`) kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
 - Amaç fonksiyonu: çelik modunda yalnızca çelik ağırlığı (kN). Kompozit modda çelik·*Steel* + donatı·*Rebar* + beton hacmi·*Concrete* + kalıp alanı·*Formwork*.
 
-> **Dikkat:** Varsayılan birim maliyetler yalnızca yer tutucudur. Koşudan önce çalışmanıza uygun fiyat oranlarını formda girin; optimum çözüm bu oranlara doğrudan bağlıdır.
+> **Dikkat:** Varsayılanlar yukarıdaki örnek fiyatlardan türetilmiştir. Optimum çözüm bu oranlara doğrudan bağlıdır; çalışmanızın (ülke, yıl) fiyat oranlarını formda girin.
 
 Kontrol edilenler (AISC 360-16 / 360-22, LRFD; gömülü kesitte iki sürüm aynıdır):
 - Eksenel basınç / çekme (I2)

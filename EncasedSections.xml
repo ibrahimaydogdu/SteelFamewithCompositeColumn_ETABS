@@ -28,8 +28,10 @@
   <B2>1.0</B2>
   <SectionPrefix>EC_</SectionPrefix>
   <!-- relative unit costs of the objective function in composite mode -->
+  <!-- default relative unit costs (steel = 1) from assumed unit prices: structural steel 2.0 $/kg = 204 $/kN,
+       rebar 1.0 $/kg = 102 $/kN, placed concrete C30 120 $/m3, column formwork 30 $/m2. Edit in the form. -->
   <SteelUnitCost>1.0</SteelUnitCost>       <!-- per kN structural steel -->
-  <RebarUnitCost>0.8</RebarUnitCost>       <!-- per kN reinforcement -->
-  <ConcreteUnitCost>0.8</ConcreteUnitCost> <!-- per m3 concrete -->
-  <FormworkUnitCost>0.2</FormworkUnitCost> <!-- per m2 formwork -->
+  <RebarUnitCost>0.5</RebarUnitCost>       <!-- per kN reinforcement -->
+  <ConcreteUnitCost>0.6</ConcreteUnitCost> <!-- per m3 concrete -->
+  <FormworkUnitCost>0.15</FormworkUnitCost> <!-- per m2 formwork -->
 </EncasedSettings>

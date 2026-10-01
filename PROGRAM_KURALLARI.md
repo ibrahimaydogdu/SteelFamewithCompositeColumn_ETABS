@@ -59,6 +59,10 @@ Evaluate(Member, applyRepair)
 - Düzeltme fonksiyonları (`F2`/`F4`/`G2`) yalnızca vektör gerçekten değiştiyse `True` döndürür.
 - Geometri düzeltmesi (E1) değişkeni `[Lb, Ub]` içinde tutar (`NearestFeasible`).
 - Formdaki sayılar `TryNum` ile okunur (invariant culture, "," → "."). `IsNumeric` / `CDbl` kullanılmaz.
+- **P-Delta ve servis durumları** (`EnablePDelta`, `EnsureServiceLateralCases`) yalnızca çalışma kopyasında ve `InitilizeLoadCases`'tan önce çalışır. Ön tanımlı P-Delta için OAPI'de setter yoktur; `P-Delta Option Definition` tablosu kullanılır. Servis durumları `SRV_<desen>` adını taşır.
+- Çelik tasarım sonuçları tek `GetSummaryResults("All")` çağrısıyla okunur ve `FrameIndex` üzerinden gruplara dağıtılır.
+- `RunCases` (çalışan durumlar) önbelleğe alınır. Çalışan durumları değiştiren kod `RunCases = Nothing` yapmalıdır.
+- Algoritmalardaki normal dağılım `NormalRnd` (tohumlu `Rnd` + Box-Muller) ile üretilir; `New Random()` kullanılmaz.
 - `E2` hangi kesitin atandığını `Assigned()` ile izler. Kesitler `E2` dışında atanırsa (otomatik listeler, `Initilize_UBLB`) `ForgetAssignedSections()` çağrılmalıdır.
 - `E3` artık `File.Save` çağırmaz: model `WorkFile` üzerinden açıldığı için `RunAnalysis` dosya yolunu bilir. Analiz ETABS süreci içinde çalıştırılır (`SetSolverOption_3`, process 1), bu analiz başına yaklaşık %10 kazandırır.
 - **Önbellek ve döngü sonu:** önbellek isabetleri analiz sayacını (`iter`) artırmaz. Ana döngü, art arda `MAX_STALL_LOOPS` (20) çevrimde yeni analiz yapılmazsa yakınsamış kabul edilip sonlanır.
