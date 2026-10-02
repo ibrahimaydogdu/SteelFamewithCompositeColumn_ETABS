@@ -1,172 +1,347 @@
 # KULLANIM KILAVUZU
 
-Kompozit kolonlu uzay çelik çerçevelerin optimum tasarımı (ETABS 22; ETABS 19 ile de çalışır).
+Kompozit kolonlu uzay çelik çerçevelerin metasezgisel yöntemlerle optimum tasarımı (ETABS 22; ETABS 19 ile de çalışır).
 
-## 1. Kurulum
-1. ETABS 22 (veya ETABS 19) kurulu ve lisanslı olmalıdır.
-   - Proje derlenirken ETABS 22 kuruluysa onun API'si (`ETABSv1.dll`), değilse ETABS 19'unki kullanılır. Program, derlendiği sürümdeki ETABS'e bağlanacak şekilde ayarlanmalıdır.
-   - ETABS 22'de kaydedilen model ETABS 19'da açılmaz. ETABS 19 modelleri ETABS 22'de açılınca otomatik dönüştürülür.
-2. `App.config` (derlenmiş hâli `FrameSap2000.exe.config`) içindeki ayarlar:
+## İçindekiler
+1. [Programın yaptığı iş](#1-programın-yaptığı-iş)
+2. [Gereksinimler, derleme ve kurulum](#2-gereksinimler-derleme-ve-kurulum)
+3. [Hızlı başlangıç: ilk koşu](#3-hızlı-başlangıç-ilk-koşu)
+4. [ETABS modelinin hazırlanması](#4-etabs-modelinin-hazırlanması)
+5. [Form](#5-form)
+6. [Yöntem seçimi ve ayar önerileri](#6-yöntem-seçimi-ve-ayar-önerileri)
+7. [Kompozit kolonlar](#7-kompozit-kolonlar)
+8. [Koşuyu izleme, durdurma ve devam ettirme](#8-koşuyu-izleme-durdurma-ve-devam-ettirme)
+9. [Çıktılar ve sonuçların yorumlanması](#9-çıktılar-ve-sonuçların-yorumlanması)
+10. [Check Structure: bir tasarımı kontrol etme](#10-check-structure-bir-tasarımı-kontrol-etme)
+11. [Sık karşılaşılan durumlar](#11-sık-karşılaşılan-durumlar)
 
-| Anahtar | Açıklama |
+---
+
+## 1. Programın yaptığı iş
+Program, bir ETABS çelik çerçeve modelindeki tasarım gruplarına en hafif (kompozit modda en ucuz) kesitleri atar. Bunu yaparken çelik tasarım oranlarını, kompozit kolon dayanımını, öteleme sınırlarını ve geometri kısıtlarını sağlar. Kesitler bir W kesit kütüphanesinden seçilir. Her aday tasarım ETABS'te analiz edilir ve tasarımı yapılır.
+
+Bir koşunun akışı:
+1. **Çalışma kopyası.** Model geçici bir klasöre kopyalanır; sizin modeliniz değişmez.
+2. **Hazırlık.** P-Delta, servis öteleme durumları, kombinasyonlar ve çözülecek durumlar çalışma kopyasında ayarlanır.
+3. **İlk sınır tasarımı.** Gruplara otomatik kesit listeleri atanır, ETABS tasarımı yapılır. Her grubun arama aralığı (alt ve üst kesit sınırı) bu tasarıma göre belirlenir.
+4. **Başlangıç belleği.** *Memory size* kadar rastgele tasarım üretilip analiz edilir.
+5. **Arama döngüleri.** Seçilen yöntem her döngüde bellekteki her üye için yeni tasarım(lar) üretir. Her tasarım şu sırayla işlenir:
+   - geometri düzeltmesi;
+   - ETABS analizi ve tasarımı;
+   - kısıt ihlali varsa düzeltme ve yeniden analiz;
+   - ceza ve maliyet hesabı.
+
+   Tekrarlanan tasarımlar önbellekten okunur. Yedek düzenli yazılır ve ETABS belirli aralıklarla yeniden başlatılır.
+6. **Final.**
+   - En iyi tasarım tüm yük durumlarıyla ve düzeltmesiz yeniden analiz edilir.
+   - Kompozit kolonlar gerçek gömülü kesitlere çevrilip ETABS'in kompozit kolon tasarımıyla doğrulanır.
+   - ETABS'te aşan kolon olursa kesiti büyütülür (koruma).
+7. **Çıktılar.** Sonuç XML'i, Excel kitabı, `<model>_best.EDB` ve `ErrorLog.txt`.
+
+**Amaç fonksiyonu:**
+- **Çelik modu:** yapı çeliği ağırlığı (kN).
+- **Kompozit mod:** çelik·birim maliyet + donatı·birim maliyet + beton hacmi·birim maliyet + kalıp alanı·birim maliyet (bkz. [7.3](#73-birim-maliyetler)).
+- Kısıt ihlali cezası: `cezalı maliyet = maliyet · (1 + ceza)³`.
+- Yalnızca cezası 0 olan (tüm kısıtları sağlayan) tasarımlar "en iyi tasarım" olabilir.
+
+---
+
+## 2. Gereksinimler, derleme ve kurulum
+
+### 2.1 Gereksinimler
+| Gereksinim | Not |
 |---|---|
-| `ETABSProgramPath` | `ETABS.exe` dosyasının yolu (varsayılan ETABS 22). Yol bulunamazsa kurulu en yeni ETABS kullanılır ve uyarı yazılır. |
-| `SectionPropertyDataPath` | Kesit kütüphanesi. CSI formatında ve birimi **mm** olmalıdır (ETABS 22: `AISC16M.xml`, ETABS 19: `AISC14M.xml`). |
-| `BeamAutoSelectList`, `ColumnAutoSelectList` | Başlangıç tasarımında kullanılan otomatik kesit listelerinin adları |
-| `WorkFolder` | Modelin çalışma kopyalarının klasörü. Boş bırakılırsa `%TEMP%\SteelFrameOpt` kullanılır. |
-| `ServiceLateralFactor` | Programın oluşturduğu `SRV_<desen>` servis durumlarının yük katsayısı (varsayılan 1,0) |
-| `SeismicDriftAmplification` | Servis öteleme modunda deprem durumlarının yerdeğiştirme büyütmesi (varsayılan 1,0; ASCE 7: Cd/Ie, TBDY 2018: R/I) |
-| `CompositeStrengthFactor` | İç kompozit dayanım oranlarının çarpanı (varsayılan 1,0). Final ETABS kontrolünün önerdiği değer girilebilir. |
+| Windows 10/11 veya Windows Server, 64 bit | |
+| ETABS 22 (veya ETABS 19), lisanslı | ETABS 22.6 ile test edildi. Kompozit kolonların ETABS ile doğrulanması ETABS 20 ve sonrasını gerektirir. |
+| .NET Framework 4.7.2 veya sonrası | Windows 10/11 ile birlikte gelir. |
+| Visual Studio (2022 veya sonrası) | Yalnızca derlemek için. Visual Studio 18 ile denendi. |
+| Bellek | ETABS 1 GB civarında kullanır; programla birlikte en az 8 GB RAM önerilir. |
 
-3. Kompozit mod kullanılacaksa `EncasedSections.xml` dosyası exe ile aynı klasörde bulunmalıdır. Proje derlenince otomatik kopyalanır.
+### 2.2 Derleme
+1. `SteelFrameWithCompositeColumnsETABS.sln` dosyasını Visual Studio'da açın.
+2. NuGet paketi (`DocumentFormat.OpenXml` 2.18, Excel çıktısı için) ilk derlemede otomatik indirilir. İnmezse: *Tools > NuGet Package Manager > Restore*.
+3. *Build > Build Solution* ile derleyin. Program `bin\Debug\FrameSap2000.exe` olarak oluşur.
+4. Çıktı klasöründe şunlar bulunmalıdır:
+   - `FrameSap2000.exe` ve `FrameSap2000.exe.config` (derlenmiş `App.config`);
+   - `EncasedSections.xml` (kompozit ayarları, otomatik kopyalanır);
+   - `ETABSv1.dll` ve `DocumentFormat.OpenXml.dll`.
 
-## 2. ETABS modelinin hazırlanması
+ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETABS 22 varsa onun, yoksa ETABS 19'unki. Program derlendiği sürümün ETABS'ine bağlanır. ETABS 22'de kaydedilen bir model ETABS 19'da açılmaz; ETABS 19 modelleri ETABS 22'de açılınca otomatik dönüştürülür.
+
+> **Klasör yolu:** programı ve modelleri kısa bir klasör yolunda tutun (ör. `D:\Opt\`). Windows'un 260 karakterlik yol sınırı aşılırsa ayar dosyası veya Excel kütüphanesi yüklenemeyebilir.
+
+### 2.3 Ayarlar (`FrameSap2000.exe.config`, kaynakta `App.config`)
+| Anahtar | Varsayılan | Açıklama |
+|---|---|---|
+| `ETABSProgramPath` | `C:\Program Files\Computers and Structures\ETABS 22\ETABS.exe` | `ETABS.exe` yolu. Bulunamazsa kurulu en yeni ETABS kullanılır ve uyarı yazılır. |
+| `SectionPropertyDataPath` | `…\ETABS 22\Property Libraries\AISC16M.xml` | Kesit kütüphanesi. CSI formatında ve birimi **mm** olmalıdır (ETABS 19: `AISC14M.xml`). |
+| `BeamAutoSelectList`, `ColumnAutoSelectList` | `BeamSectionList`, `ColumnSectionList` | İlk sınır tasarımında kullanılan otomatik kesit listeleri (bkz. 4.4). |
+| `WorkFolder` | boş | Çalışma kopyalarının klasörü. Boşsa `%TEMP%\SteelFrameOpt`. |
+| `ServiceLateralFactor` | 1,0 | Programın oluşturduğu `SRV_<desen>` servis durumlarının yük katsayısı. Örneğin ASCE 7 servis rüzgârı için 0,6–0,7. |
+| `SeismicDriftAmplification` | 1,0 | Servis öteleme modunda deprem durumlarının yerdeğiştirme büyütmesi. ASCE 7: Cd/Ie, TBDY 2018: R/I. |
+| `CompositeStrengthFactor` | 1,0 | İç kompozit dayanım oranlarının çarpanı. Final ETABS kontrolünün önerdiği değer girilebilir (bkz. 7.4). |
+
+---
+
+## 3. Hızlı başlangıç: ilk koşu
+1. **Modeli hazırlayın** (bölüm 4): gruplar, çelik tasarım prosedürü, yük desen tipleri, kombinasyonlar.
+2. Programı açın. **MainPage** sekmesinde:
+   - *ETABS Model* → **Select**: modeli (`*.EDB`) seçin.
+   - *Output File* → **Create**: sonuç dosyasının adını ve yerini seçin (`*.xml`). Excel kitabı, yedek ve önbellek dosyaları da bu dosyanın yanına yazılır.
+   - *Hide ETABS*: ETABS penceresini gizler (önerilir, biraz daha hızlıdır).
+3. **Structural Properties** sekmesinde:
+   - Öteleme sınırlarını girin; varsayılan H/300 ve h/300.
+   - Çelik tasarım kodunu seçin; varsayılan AISC 360-22.
+   - Kompozit kolon isteniyorsa *Encased composite columns* kutusunu işaretleyin ve birim maliyetleri kontrol edin.
+4. **Optimization parameters** sekmesinde:
+   - Yöntemi seçin; ilk deneme için *Harmony Search* veya *Teaching-Learning*.
+   - *Memory / population size* ve *Max. analyses* değerlerini girin. Deneme için 10 ve 100; gerçek koşu için bkz. bölüm 6.
+5. **Start**'a basın.
+   - Durum satırı o anki aşamayı gösterir.
+   - İlk sınır tasarımı birkaç dakika sürebilir.
+   - Arama başlayınca analiz sayısı, en iyi maliyet ve kalan süre güncellenir.
+6. Koşu bitince bir mesaj kutusu çıkar:
+   - "API script completed successfully.": final tasarım tüm kontrolleri sağlıyor.
+   - Bir uyarı: final tasarım bazı kontrolleri sağlamıyor; `ErrorLog.txt` dosyasına bakın.
+7. **Sonuçlar:**
+   - `<çıktı>.xlsx` dosyasını açın (bölüm 9).
+   - `<model>_best.EDB`, en iyi tasarımın ETABS modelidir.
+
+> **Deneme koşusu önerisi:** gerçek koşudan önce 10 üye / 100 analizlik kısa bir koşu yapın. Model hazırlığındaki eksikler (kombinasyon, malzeme, grup) ilk dakikalarda `ErrorLog.txt` dosyasında görünür.
+
+---
+
+## 4. ETABS modelinin hazırlanması
 Program seçilen modeli **değiştirmez**:
 - Koşu başında model geçici bir çalışma klasörüne kopyalanır (`%TEMP%\SteelFrameOpt\<model>_<tarih_saat>`) ve tüm analizler orada yapılır.
 - Analiz dosyaları OneDrive gibi senkronize klasörleri doldurmaz.
-- Çalışma klasörü koşu sonunda silinir. Yolu `ErrorLog.txt` dosyasında `Info: working copy …` satırında yazar.
-- En iyi tasarım yine orijinal modelin yanına `<model>_best.EDB` adıyla kaydedilir.
+- Çalışma klasörü koşu sonunda silinir; yolu `ErrorLog.txt` dosyasında `Info: working copy …` satırında yazar. Kesilen koşuların klasörleri 2 gün sonra bir sonraki koşuda silinir.
+- En iyi tasarım, orijinal modelin yanına `<model>_best.EDB` adıyla kaydedilir.
 
-- **Gruplar:** Aynı kesiti alacak çubukları bir grupta toplayın. Her çubuk yalnızca bir gruba ("All" dışında) ait olmalıdır. Grup içindeki çubukların tasarım prosedürü aynı olmalıdır.
-- **Tasarım değişkenleri:** Tasarım prosedürü *Steel Frame Design* olan gruplar değişken olur. Diğer gruplar (beton, No Design vb.) sabit kalır.
-- **Kolonlar:** Kompozit modda, tüm üyeleri düşey olan çelik gruplar gömülü kompozit kolon olarak tasarlanır. Kolon ve kiriş gruplarını ayrı tutun.
-- **Malzemeler:** `A992Fy50` çeliği modelde tanımlı olmalıdır. Kompozit modda `EncasedSections.xml` içinde adı verilen beton (ör. `4000Psi`) ve donatı (ör. `A615Gr60`) malzemeleri de gereklidir.
-- **Yükler:** Yük desenlerinin tipleri doğru olmalıdır (Dead, Live, **Wind**, **Quake**). Otomatik kombinasyonlar ve yatay yük tespiti bu tiplere göre yapılır.
-- **Yük kombinasyonları:**
-  - Modelde çelik tasarımı için işaretli *dayanım* kombinasyonları varsa bunlar kullanılır.
-  - Yoksa ve formda "Create default design combos" seçiliyse, program ETABS'in yönetmeliğe göre varsayılan kombinasyonlarını oluşturur (`DStlS…`, `DStlD…`).
-  - Kombinasyon yoksa ve bu seçenek kapalıysa program hata vererek durur.
-- **Otomatik kesit listeleri:**
-  - Başlangıç sınırları için bütün çelik kirişlere `BeamSectionList`, kolonlara `ColumnSectionList` atanır ve ETABS tasarımı yapılır.
-  - Listeler modelde yoksa kütüphanedeki **tüm W kesitleriyle otomatik oluşturulur**; ilk tasarım bu durumda uzun sürebilir.
-  - Daha kısa bir liste kullanmak için listeyi ETABS'te kendiniz tanımlayın (Define > Section Properties > Frame Sections > Auto Select List). Ardından adını `App.config` dosyasına yazın. Örneğin 525M modelinde hazır bulunan `A-LatBm` / `A-LatCol` listeleri kullanılabilir.
-- **Analiz:** Kompozit kolonlarda B2 = 1 kabul edilir (`EncasedSections.xml`), bu yüzden analizde P-Delta etkisi olmalıdır. Formdaki *P-Delta analysis* seçeneği (varsayılan açık) bunu çalışma kopyasında sağlar (bkz. 3. bölüm); kendi modelinizi değiştirmez.
+### 4.1 Gruplar ve tasarım değişkenleri
+- Aynı kesiti alacak çubukları bir grupta toplayın. Her çubuk yalnızca bir gruba ("All" dışında) ait olmalıdır.
+- Grup içindeki çubukların tasarım prosedürü aynı olmalıdır.
+- Tasarım prosedürü *Steel Frame Design* olan her grup bir **tasarım değişkeni** olur. Diğer gruplar (beton, No Design vb.) sabit kalır.
+- Kompozit modda, tüm üyeleri düşey olan çelik gruplar gömülü kompozit kolon olarak tasarlanır. **Kolon ve kiriş gruplarını ayrı tutun.**
+- Değişken sayısı arttıkça arama zorlaşır. Benzer çubukları (ör. iki katta bir aynı kolon) aynı grupta toplamak sonucu iyileştirir.
 
-## 3. Form
-**Genel sekme**
-- ETABS dosyası (`*.EDB`) ve çıktı dosyası (`*.xml`) seçilir.
-- *Hide ETABS*: ETABS penceresini gizler.
-- *Load BackUp File*: kesilen bir koşuya (elektrik kesintisi, çökme, kapatma) kaldığı yerden devam eder.
-  - Kesilen koşunun **çıktı dosyasını** seçin (aynı `*.xml`). Yedek bu dosyanın yanında `<çıktı>.backup.xml` adıyla durur. Form ayarları yedekten okunur.
-  - Program yeni bir çalışma kopyası açar, ilk sınır tasarımını yeniden yapar (525M: yaklaşık 2 dakika) ve arama belleğiyle devam eder.
-  - Sonuç önbelleği (`<çıktı>.cache.txt`) de okunur, kesilen koşuda analiz edilmiş tasarımlar tekrar analiz edilmez.
-  - Yedek her çevrim sonunda ve çevrim içinde 10 dakikada bir yazılır. Kesintide en çok son 10 dakikanın işi kaybolur; yarıda kalan çevrim baştan yapılır.
-  - Yedek önce geçici dosyaya yazılır, sonra eskisinin yerine geçer. Önceki yedek `.backup.xml.bak` olarak saklanır. Son yedek okunamazsa `.bak` kullanılır.
-  - Rastgele sayı üretecinin durumu kaydedilemez: devam eden koşu, kesintisiz koşuyla birebir aynı sonucu vermez (tohum + çevrim numarasıyla sürer).
-  - **Yedek denetimleri:**
-    - Yedek okunamazsa veya içeriği tutarsızsa (bellek boş, değişken sayısı farklı, kesit numarası kütüphane dışında) `.bak` denenir. İkisi de kullanılamazsa nedeni yazan bir mesaj çıkar ve koşu başlamaz.
-    - Yedek, modelin yolunu, boyutunu, tarihini ve SHA-256 özetini, tasarım gruplarını ve kesit kütüphanesinin boyutunu saklar.
-    - Formda başka bir model seçiliyse, yedeğin ait olduğu model gösterilir ve o modelle devam edilip edilmeyeceği sorulur.
-    - Model yedekten sonra değiştirildiyse (özet farklı) uyarı çıkar: yedekteki tasarımlar değişen modele uymayabilir; devam etmek kullanıcıya bırakılır.
-    - Devam etmeden önce bir özet gösterilir ve onay istenir: model, kayıt zamanı, yöntem, tohum, analiz sayısı ve en iyi maliyet. Yanlış dosya seçildiyse burada görülür.
-    - ETABS modeli okuduktan sonra tasarım grupları ve kesit kütüphanesi yedektekiyle karşılaştırılır. Farklıysa koşu açık bir mesajla durur. Eski yedeklerde bu bilgiler yoktur; değişken sayısı ve kesit numaraları yine denetlenir.
-    - Yeni (yedeksiz) bir koşu, aynı çıktı dosyasına ait eski yedeği siler.
-- *Check Structure Only*: çıktı XML'indeki en iyi kesitleri düzeltme yapmadan kontrol eder. Sonuç `<çıktı>.check.xml` dosyasına yazılır.
-- Koşu sırasında gösterilenler:
-  - *Analyses*: yapılan / en fazla analiz sayısı.
-  - *Best cost*: en iyi uygun (cezasız) çözümün maliyeti.
-  - *Elapsed*, *Remaining*: geçen ve tahmini kalan süre.
-  - *Av. analysis (s)*: analiz başına ortalama süre.
-  - İlerleme çubuğu.
-  - Listeler: en iyi çözümün kesitleri ve iyileşme geçmişi.
-  - **Durum satırı** (ilerleme alanlarının altında): o anki aşama ve aşamada geçen süre. Örnek aşamalar: *Starting ETABS*, *Initial design with the auto select lists* (birkaç dakika sürebilir), *Initial memory: design 3 / 100*, *Search: loop 2, member 17 / 100*, *Restarting ETABS*, *Final analysis and ETABS check*. Süre saniyede bir güncellenir.
-- Koşu arka planda çalışır: ETABS hesap yaparken de form yanıt verir ve alanlar canlı güncellenir. Koşu sırasında ayarlar kilitlenir.
-- Koşu sırasında **Start** düğmesi **Stop** olur. Stop, onaydan sonra koşuyu o anki değerlendirmenin sonunda durdurur: yedek yazılır, ETABS kapatılır. Koşuya *Load BackUp File* ile (aynı çıktı dosyası) devam edilebilir.
-- Koşu sürerken pencere kapatılırsa onay istenir; koşu aynı şekilde durdurulur ve program kapanır.
-- Uzun ETABS aşamalarında (ilk sınır tasarımı, final kontrol) Stop ancak o aşama bitince etkili olur; durum satırında *Stopping after the current evaluation...* yazar.
+### 4.2 Malzemeler
+- `A992Fy50` çeliği modelde tanımlı olmalıdır.
+- Kompozit modda `EncasedSections.xml` içinde adı verilen beton (ör. `4000Psi`) ve donatı (ör. `A615Gr60`) malzemeleri de modelde bulunmalıdır.
 
-**Structural Properties sekmesi**
-- *Number of Joint / Members / Group / Section*: modelden okunan sayılar (salt okunur). Group, tasarım değişkeni olan grup sayısıdır.
-- Öteleme sınırları (H/oran, pozitif sayı) ve çelik tasarım kodu (varsayılan `AISC 360-22`).
-- *Column to Column*: üst kat kolonu alt kattakinden büyük olamaz. *Beam to Column*: kiriş flanşı kolona sığmalı. Kutu işaretli değilse o kısıt kullanılmaz.
-- Sayı kutularında ondalık ayırıcı olarak "." veya "," kullanılabilir; Windows dil ayarından bağımsızdır.
-  - ETABS 22: `AISC 360-22` ve `AISC 360-16` kullanılabilir.
+### 4.3 Yükler ve kombinasyonlar
+- Yük desenlerinin tipleri doğru olmalıdır: Dead, Live, **Wind**, **Quake**. Otomatik kombinasyonlar ve yatay yük tespiti bu tiplere göre yapılır.
+- Modelde çelik tasarımı için işaretli *dayanım* kombinasyonları varsa bunlar kullanılır.
+- Yoksa ve formda *Create default design combos* seçiliyse, program ETABS'in yönetmeliğe göre varsayılan kombinasyonlarını oluşturur (`DStlS…`, `DStlD…`).
+- Kombinasyon yoksa ve bu seçenek kapalıysa program hata vererek durur.
+
+### 4.4 Otomatik kesit listeleri (ilk sınır tasarımı)
+- Başlangıç sınırları için bütün değişken kirişlere `BeamSectionList`, kolonlara `ColumnSectionList` atanır ve ETABS tasarımı yapılır.
+- Listeler modelde yoksa kütüphanedeki **tüm W kesitleriyle** (AISC16M: 289 kesit) otomatik oluşturulur. İlk tasarım bu durumda birkaç dakika sürer.
+- Daha kısa bir liste için listeyi ETABS'te kendiniz tanımlayın (*Define > Section Properties > Frame Sections > Auto Select List*) ve adını `App.config` dosyasına yazın. Örneğin 525M modelinde hazır `A-LatBm` / `A-LatCol` listeleri vardır.
+- Grubun arama aralığı, bu tasarımda bulunan kesit ve tasarım oranına göre belirlenir. Kompozit gruplarda alt sınır en küçük kesittir: beton katkısıyla daha küçük profiller de yeterli olabilir.
+
+### 4.5 Analiz
+Kompozit kolonlarda B2 = 1 kabul edilir (`EncasedSections.xml`); bu yüzden analizde P-Delta etkisi olmalıdır. Formdaki *P-Delta analysis* seçeneği (varsayılan açık) bunu çalışma kopyasında sağlar ve kendi modelinizi değiştirmez.
+
+### 4.6 Model kontrol listesi
+- [ ] Değişken gruplar *Steel Frame Design*, kolon ve kiriş grupları ayrı
+- [ ] `A992Fy50` (ve kompozit modda beton ile donatı malzemeleri) tanımlı
+- [ ] Yük desen tipleri doğru (Wind / Quake)
+- [ ] Dayanım kombinasyonları tanımlı ya da *Create default design combos* açık
+- [ ] Model ETABS'te hatasız analiz ediliyor
+- [ ] Deprem ötelemesi kontrol edilecekse `SeismicDriftAmplification` ayarlandı
+
+---
+
+## 5. Form
+
+### 5.1 MainPage sekmesi
+| Alan | Açıklama |
+|---|---|
+| *ETABS Model* / **Select** | Optimize edilecek model (`*.EDB`) |
+| *Output File* / **Create** | Sonuç dosyası (`*.xml`). Excel kitabı, yedek ve önbellek bu dosyanın yanına yazılır. |
+| **Excel** | Seçili çıktı dosyasından Excel kitabını yeniden oluşturur (ve varsa `.check.xml`'den Check Structure kitabını) |
+| **Start / Stop** | Koşuyu başlatır; koşu sırasında **Stop** olur (bölüm 8) |
+| *Hide ETABS* | ETABS penceresini gizler |
+| *Load BackUp File* | Kesilen bir koşuya devam eder (bölüm 8.3) |
+| *Check Structure Only* | Çıktı dosyasındaki tasarımı düzeltme yapmadan kontrol eder (bölüm 10) |
+| *Date, Start, Finish, Av. analysis (s)* | Koşu tarihi, başlangıç ve bitiş saati, analiz başına ortalama süre |
+| *Analyses, Best cost, Elapsed, Remaining* | Yapılan / en fazla analiz, en iyi uygun tasarımın maliyeti, geçen ve tahmini kalan süre |
+| Listeler | Sol: en iyi tasarımın kesitleri. Sağ: iyileşme geçmişi (analiz, döngü, maliyet). |
+| Durum satırı | O anki aşama ve aşamada geçen süre (bölüm 8.1) |
+
+### 5.2 Structural Properties sekmesi
+**Frame Properties**
+- *Number of Joint / Members / Group / Section*: modelden okunan sayılar (salt okunur). *Group*, tasarım değişkeni olan grup sayısıdır.
+- *Top St Drift (1/)*, *Inter St Drift (1/)*: tepe ve kat arası öteleme sınırları, H/oran ve h/oran (pozitif sayı).
+- *Steel DesignCode*: çelik tasarım kodu.
+  - ETABS 22: `AISC 360-22` (varsayılan) veya `AISC 360-16`.
   - ETABS 19 API'si bu iki kodu kabul etmez; `AISC 360-10` seçin.
-  - Atanan kod `ErrorLog.txt` dosyasına `Info: steel design code …` satırıyla yazılır.
-- **Analysis / Composite Options** grubu:
-  - *Encased composite columns*: kolon gruplarını gömülü kompozit kolon olarak tasarlar.
-    - İşaretliyken **yalnızca kolonlar** kompozit olur: tüm üyeleri düşey olan çelik gruplar gömülü kompozit kolon, kirişler ve diğer gruplar çelik olarak tasarlanır.
-    - İşaretli değilse tüm gruplar çeliktir ve maliyet çelik ağırlığıdır (kN).
-    - Koşunun kompozit çalıştığı günlükteki `Info: composite columns (…) in groups [...]` satırından ve sonuç dosyasında `[EC …]` ile yazılan kesitlerden görülür.
-  - *Composite code*: kompozit kolon kontrolünün yönetmelik sürümü, `AISC 360-16` veya `AISC 360-22` (varsayılan). Çelik tasarım kodundan bağımsızdır.
-    - Gömülü kolonlarda iki sürümün formülleri aynıdır; sonuç değişmez.
-    - Farklar dolgulu kutu/boru kesitlerdedir (beton kesme katkısı, narin kesit etkileşimi, burulma). Bu kesitler henüz optimizasyona bağlı değildir.
-    - Eski bir yedekten devam edilirse `AISC 360-16` kullanılır.
-  - *Create default design combos if model has none*: kombinasyon yoksa otomatik oluşturur.
-  - *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
-    - "All cases and combos": modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
-    - "Lateral (wind / earthquake) only": yalnızca rüzgâr veya deprem içeren kombinasyonlar; bunlar yoksa bu tür yük durumları.
-    - **"Lateral load cases (service, unfactored)"** (varsayılan): yalnızca yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
-      - Modelde böyle bir durum yoksa program, çalışma kopyasında her rüzgâr ve deprem yük deseni için katsayısız bir doğrusal durum (`SRV_<desen>`) oluşturur ve günlüğe yazar.
-      - Durumların yük katsayısı `App.config` > `ServiceLateralFactor` ile ayarlanır (varsayılan 1,0). Örneğin ASCE 7'deki servis rüzgârı için 0,6 ya da 0,7 kullanılabilir.
-      - Deprem durumları (response spectrum ve yalnızca deprem desenli doğrusal durumlar) elastik ötelemeyi verir. Bunlar `App.config` > `SeismicDriftAmplification` ile çarpılır (ASCE 7: Cd/Ie, TBDY 2018: R/I). Varsayılan 1,0'dır ve bu durumda günlüğe uyarı yazılır. Rüzgâr durumları büyütülmez.
-      - Katsayısız (servis) öteleme kontrolü içindir. Modelde böyle durumlar tanımlı olmalıdır.
-    - **Dikkat:** İlk iki mod, katsayılı dayanım kombinasyonlarını da (ör. 1,2D + 1,6W) kullanır. Öteleme sınırları genellikle servis yükleri içindir; bu modlarda öteleme fazla tahmin edilip kolonlar gereğinden büyük çıkabilir.
-    - Not: ETABS analizi yine tüm durumları çözer; kazanç sonuç okuma aşamasındadır.
-  - *Random seed*: 0 girilirse her koşu farklı olur (saat bazlı). Pozitif bir sayı aynı koşuyu tekrarlar. Kullanılan tohum pencere başlığında, `ErrorLog.txt` dosyasında ve sonuç XML'inde yazar. Çoklu koşu için alanı 0 bırakıp programı tekrar çalıştırın.
-  - *P-Delta analysis (nonlinear cases + preset P-Delta)* (varsayılan açık): çalışma kopyasında nonlineer statik durumlara P-Delta geometrik nonlineerliği atanır.
-    - Doğrusal durumlar için ön tanımlı P-Delta "Non-iterative Based on Mass" olarak ayarlanır (modelde başka bir yöntem tanımlıysa o korunur).
-    - Değişiklikler günlükte `Info: P-Delta: …` satırıyla listelenir. Eski yedeklerden devam edilirse bu seçenek kapalı okunur.
-  - *Skip analysis cases not used by design / drift checks* (varsayılan açık): dayanım ve sehim kombinasyonlarında ve öteleme kontrolünde kullanılmayan yük durumları çözülmez.
-    - Bu durumların ön koşulları, Modal durumlar ve ETABS iç durumları (`~…`) her zaman çözülür.
-    - Kapatılan durumlar `ErrorLog.txt` dosyasında listelenir.
-    - En iyi tasarım (`_best.EDB`) tüm durumlarla yeniden analiz edilir.
+  - Atanan kod `ErrorLog.txt` dosyasında `Info: steel design code …` satırında yazar.
+- *Column to Column*: üst kat kolonu alt kattakinden büyük (alan ve derinlik) olamaz.
+- *Beam to Column*: kiriş flanşı bağlandığı kolona sığmalıdır.
+- Kutu işaretli değilse ilgili kısıt kullanılmaz.
 
-**Optimization sekmesi**
-- Sol tarafta **General** ve **Evaluation** grupları, sağ tarafta **Method parameters** grubu yer alır. Method parameters, seçili yöntemin açıklamasını, kaynağını, kabul kuralını, Levy seçeneğinin etkisini ve parametrelerini gösterir. Parametre adının üzerine gelince sınırlar ve açıklama görünür. Yöntem değiştirildiğinde girilen değerler kaybolmaz.
-- **General:**
-  - *Method*: 15 yöntem (aşağıdaki tablo).
-  - *Memory / population size*: bellek (popülasyon, koloni, sürü) boyutu.
-  - *Max. analyses*: en fazla ETABS analizi.
-  - *Memory Update*: yalnızca HS, BBO, Whale ve Dandelion için geçerlidir. Diğer yöntemler kendi kabul kuralını kullanır; bu durumda seçenek soluk görünür.
-  - *Levy Flight*: yalnızca BBO, ABC, BSO ve Crow'da etkilidir; kutuda ne değiştirdiği yazar. Diğer yöntemlerde soluk görünür.
-- **Yöntemler** (ayrıntı ve parametreler formdaki Method parameters kutusunda):
+**Analysis / Composite Options**
+- *Encased composite columns*: kolon gruplarını gömülü kompozit kolon olarak tasarlar.
+  - İşaretliyken **yalnızca kolonlar** kompozit olur: tüm üyeleri düşey olan çelik gruplar gömülü kompozit kolondur, kirişler ve diğer gruplar çelik kalır.
+  - İşaretli değilse tüm gruplar çeliktir ve maliyet çelik ağırlığıdır (kN).
+  - Koşunun kompozit çalıştığı, günlükteki `Info: composite columns (…) in groups [...]` satırından ve sonuçta `[EC …]` ile yazılan kesitlerden anlaşılır.
+- *Composite code*: kompozit kontrolün yönetmelik sürümü, `AISC 360-16` veya `AISC 360-22` (varsayılan). Çelik tasarım kodundan bağımsızdır.
+  - Gömülü kolonlarda iki sürümün formülleri aynıdır; sonuç değişmez.
+  - Farklar dolgulu kutu ve boru kesitlerdedir. Bu kesitler henüz optimizasyona bağlı değildir.
+  - Eski bir yedekten devam edilirse `AISC 360-16` kullanılır.
+- *Create default design combos if model has none*: dayanım kombinasyonu yoksa ETABS'in varsayılan kombinasyonlarını oluşturur.
+- *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
+  - **Lateral load cases (service, unfactored)** (varsayılan): yükleri tümüyle rüzgâr/deprem desenlerinden oluşan doğrusal statik durumlar ve response spectrum durumları.
+    - Modelde böyle bir durum yoksa program çalışma kopyasında her rüzgâr ve deprem deseni için katsayısız bir doğrusal durum (`SRV_<desen>`) oluşturur. Katsayı `ServiceLateralFactor` ayarıyla verilir.
+    - Deprem durumlarının elastik ötelemesi `SeismicDriftAmplification` ile çarpılır (ASCE 7: Cd/Ie, TBDY 2018: R/I). Katsayı 1,0 bırakılırsa günlüğe uyarı yazılır. Rüzgâr durumları büyütülmez.
+  - *Lateral (wind / earthquake) only*: yalnızca rüzgâr veya deprem içeren kombinasyonlar; bunlar yoksa bu tür yük durumları.
+  - *All cases and combos*: modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
+  - **Dikkat:** son iki mod katsayılı dayanım kombinasyonlarını da (ör. 1,2D + 1,6W) kullanır. Öteleme sınırları genellikle servis yükleri içindir; bu modlarda öteleme fazla tahmin edilip kolonlar gereğinden büyük çıkabilir.
+- *Random seed*:
+  - 0 girilirse her koşu farklı olur (saat bazlı). Pozitif bir sayı aynı başlangıcı tekrarlar.
+  - Kullanılan tohum pencere başlığında, `ErrorLog.txt` dosyasında ve sonuçta yazar.
+  - ETABS'in P-Delta çözümündeki çok küçük sayısal farklar nedeniyle aynı tohumlu iki koşu birebir aynı sonucu vermeyebilir.
+- *Skip analysis cases not used by design / drift checks* (varsayılan açık): dayanım ve sehim kombinasyonlarında ve öteleme kontrolünde kullanılmayan yük durumları çözülmez.
+  - Ön koşul durumları, Modal ve ETABS iç durumları (`~…`) her zaman çözülür.
+  - Kapatılan durumlar günlükte listelenir. En iyi tasarım tüm durumlarla yeniden analiz edilir.
+- *P-Delta analysis (nonlinear cases + preset P-Delta)* (varsayılan açık):
+  - Nonlineer statik durumlara P-Delta atanır.
+  - Doğrusal durumlar için ön tanımlı P-Delta "Non-iterative Based on Mass" yapılır; modelde başka bir yöntem tanımlıysa o korunur.
+  - Değişiklikler günlükte `Info: P-Delta: …` satırında listelenir.
 
-| Yöntem | Kabul | Üye başına analiz | Parametreler (varsayılan) |
-|---|---|---|---|
-| Harmony Search (HS) | Memory update | 1 | PAR 0,6; HMCR 0,9; PAR / HMCR türü (Static, Dynamic, Adaptive) |
-| Biogeography-Based (BBO) | Memory update | 1 | mutasyon oranı 0,1 (Levy: mutasyon) |
-| Whale (WOA), Dandelion (DO) | Memory update | 1 | — |
-| Artificial Bee Colony (ABC) | açgözlü | 2 (+ kâşif arılar) | terk sınırı (0 = koloni × değişken), değişim oranı MR (0 = tek değişken) (Levy: kâşif arı) |
-| Ant Colony (ACO) | arşivin en kötüsüyle | 1 | α 1, β 0,5 (hafif kesit tercihi), buharlaşma ρ 0,2, feromon bırakan oran 0,2 |
-| Brain Storm (BSO) | açgözlü | 1 | küme sayısı 5, P(merkez değiştir) 0,2, P(tek küme) 0,8, P(merkez | tek) 0,4, P(merkez | iki) 0,5, logsig eğimi 20, adım 0,1 × aralık (Levy: değiştirilen merkez) |
-| Crow Search (CSA) | açgözlü | 1 | farkındalık AP 0,1, uçuş uzunluğu fl 2 (Levy: rastgele hareket) |
-| Firefly (FA) | açgözlü | 1 | α 0,2 × aralık, β0 1, βmin 0,2, γ 15 (normalize mesafe), α sönümü 0,97 / çevrim |
-| Grasshopper (GOA) | doğrudan | 1 | cMax 1, cMin 0,00004, f 0,5, l 1,5 |
-| Teaching-Learning (TLBO) | açgözlü | 2 (HS aşamasıyla 3) | öğretme faktörü (0 = rastgele 1/2), HS aşaması (TLBO-HS) ve HMCR 0,85, PAR 0,45 |
-| Tree-Seed (TSA) | en iyi tohum, açgözlü | 2–5 | arama eğilimi ST 0,1, ağaç başına tohum 2–5 |
-| Grey Wolf (GWO) | doğrudan (alfa, beta, delta saklanır) | 1 | başlangıç a 2 |
-| Honey Badger (HBA) | açgözlü | 1 | β 6, C 2 |
-| Aquila (AO) | açgözlü | 1 | α 0,1, δ 0,1 |
+**Composite Cost (relative unit prices)**: kompozit modda birim maliyetler (bkz. [7.3](#73-birim-maliyetler)).
 
-  - Zamana bağlı katsayılar (GWO `a`, GOA `c`, HBA yoğunluk, BSO adım, AO evreleri) analiz sayısının en fazla analize oranıyla ilerler.
-  - Yöntem durumu (ABC deneme sayaçları, ACO feromonu, GWO liderleri) yedeğe yazılır; *Load BackUp* ile devam edilir.
-- **Evaluation:**
-  - *Repair mode*: kısıt ihlallerinin düzeltilme şekli.
-    - **Combined (faster)**, varsayılan: öteleme ve PMM düzeltmeleri tek analizin sonuçlarından birlikte yapılır, ardından bir yeniden analiz. 525M modelinde değerlendirme başına yaklaşık 26 s.
-    - **Sequential (original)**: önceki yöntem; her düzeltme adımından sonra ayrı analiz (en fazla 6 analiz, yaklaşık 68 s).
-    - İki mod farklı sonuçlar verir. Karşılaştırma yapılacak koşularda aynı mod kullanılmalıdır.
-  - *Reuse results of repeated designs* (varsayılan açık): daha önce değerlendirilmiş bir tasarım tekrar üretilirse ETABS çağrılmaz, saklanan sonuç kullanılır.
-    - Bu değerlendirmeler analiz sayısına eklenmez.
-    - Art arda 20 çevrimde yeni bir tasarım değerlendirilmezse arama yakınsamış kabul edilir ve koşu biter.
-  - *Restart ETABS every … (0 = off)* (varsayılan 100): ETABS'in bellek kullanımı arama boyunca büyür (525M: 10 analizde 660 → 960 MB). Bu sayıda analizden sonra model kaydedilir, ETABS kapatılır ve yeni bir ETABS kaydedilen modeli açar.
-    - Sonuçlar değişmez: aynı tasarım yeniden başlatmadan önce ve sonra aynı öteleme, çelik ve kompozit oranlarını verir (fark yalnızca 1e-13 düzeyinde çözücü gürültüsü).
-    - Bir yeniden başlatma 525M modelinde yaklaşık 40–47 s sürer (100 analizde bir: yaklaşık %2 ek süre); bellek yaklaşık 580 MB'a iner. Günlük: `Info: ETABS restart …` (bellek, model dosyası, çalışma klasörü boyutu).
-    - Yeniden başlatma kaydedilen `.EDB` modeliyle yapılır. `.e2k` ile yeniden oluşturma denendi ve kullanılmadı: ETABS 22.6'da `.e2k` model verilerinin bir kısmını taşımıyor (525M modelinde ötelemeler %15 farklı çıktı).
+Sayı kutularında ondalık ayırıcı olarak "." veya "," kullanılabilir; Windows dil ayarından bağımsızdır.
 
-## 4. Kompozit kolon ayarları (`EncasedSections.xml`)
+### 5.3 Optimization parameters sekmesi
+Sol tarafta **General** ve **Evaluation** grupları, sağ tarafta **Method parameters** grubu bulunur.
+
+**General**
+| Alan | Açıklama |
+|---|---|
+| *Method* | 15 yöntemden biri (bölüm 6) |
+| *Memory / population size* | Bellek (popülasyon, koloni, sürü) büyüklüğü |
+| *Max. analyses* | En fazla ETABS analizi; arama bu sayıya ulaşınca biter |
+| *Memory Update* | Yeni tasarımın belleğe nasıl gireceği. Yalnızca HS, BBO, Whale ve Dandelion'da geçerlidir; diğer yöntemlerde soluk görünür (aşağıdaki tablo). |
+| *Clear Duplicates* | Her döngü sonunda bellekteki aynı tasarımları atar, yerlerine rastgele tasarım üretir |
+| *Levy Flight* | Yalnızca BBO, ABC, BSO ve Crow'da etkilidir; ne değiştirdiği Method parameters kutusunda yazar |
+| *Test Math* | ETABS'siz matematik test problemi (geliştirme ve deneme amaçlı) |
+
+*Memory Update* seçenekleri:
+| Seçenek | Yeni tasarım hangi üyenin yerine geçer | Koşul |
+|---|---|---|
+| Directly with old member | Üretildiği üye | Her zaman |
+| Directly with random member | Rastgele bir üye | Her zaman |
+| Directly with worst member | En kötü üye | Her zaman |
+| Greedy with old member | Üretildiği üye | Yalnızca daha iyiyse |
+| Greedy with random member | Rastgele bir üye | Yalnızca daha iyiyse |
+| **Greedy with worst member** (varsayılan) | En kötü üye | Yalnızca daha iyiyse |
+
+**Method parameters**: seçili yöntemin adı, kısa açıklaması, kaynağı, kabul kuralı, Levy seçeneğinin etkisi ve parametreleri.
+- Parametre adının üzerine gelince sınırlar ve açıklama görünür.
+- Yöntem değiştirildiğinde girilen değerler kaybolmaz.
+- Geçersiz değerde (sayı değil, sınır dışı, tam sayı değil) koşu başlamadan uyarı verilir.
+
+**Evaluation**
+- *Repair mode*: kısıt ihlallerinin düzeltilme şekli.
+  - **Combined (faster)** (varsayılan): öteleme ve dayanım düzeltmeleri tek analizin sonuçlarından birlikte yapılır, ardından bir yeniden analiz. 525M modelinde değerlendirme başına yaklaşık 26 s.
+  - **Sequential (original)**: her düzeltme adımından sonra ayrı analiz (en fazla 6 analiz, yaklaşık 68 s).
+  - İki mod farklı sonuçlar verir. Karşılaştırılacak koşularda aynı mod kullanılmalıdır.
+- *Reuse results of repeated designs* (varsayılan açık): daha önce değerlendirilmiş bir tasarım tekrar üretilirse ETABS çağrılmaz, saklanan sonuç kullanılır.
+  - Bu değerlendirmeler analiz sayısına eklenmez.
+  - Art arda 20 döngüde yeni tasarım değerlendirilmezse arama yakınsamış sayılır ve koşu biter.
+- *Restart ETABS every … (0 = off)* (varsayılan 100): ETABS'in bellek kullanımı arama boyunca büyür (525M: 10 analizde 660 → 960 MB). Bu sayıda analizden sonra model kaydedilir, ETABS kapatılır ve yeni bir ETABS kaydedilen modeli açar.
+  - Sonuçlar değişmez: aynı tasarım yeniden başlatmadan önce ve sonra aynı sonuçları verir.
+  - Bir yeniden başlatma 525M modelinde 40–47 s sürer (100 analizde bir: yaklaşık %2 ek süre); bellek yaklaşık 580 MB'a iner.
+  - Günlükte `Info: ETABS restart …` satırı yazar.
+  - Yeniden başlatma kaydedilen `.EDB` ile yapılır. `.e2k` ile yeniden oluşturma ETABS 22.6'da model verilerini eksik taşıdığı için kullanılmaz.
+
+---
+
+## 6. Yöntem seçimi ve ayar önerileri
+
+### 6.1 Yöntemler
+| Yöntem | Kısaca | Kabul | Üye başına analiz | Parametreler (varsayılan) |
+|---|---|---|---|---|
+| Harmony Search (HS) | Bellekten seçme, perde ayarı, rastgele seçme | Memory update | 1 | PAR 0,6; HMCR 0,9; PAR türü Dynamic, HMCR türü Adaptive |
+| Biogeography-Based (BBO) | Habitatlar arası göç, mutasyon | Memory update | 1 | mutasyon oranı 0,1 (Levy: mutasyon) |
+| Whale (WOA) | Kuşatma, sarmal ve rastgele arama | Memory update | 1 | — |
+| Dandelion (DO) | Yükselme, alçalma ve iniş aşamaları | Memory update | 1 | — |
+| Artificial Bee Colony (ABC) | İşçi arı, gözcü arı (rulet), kâşif arı | Açgözlü | 2 (+ kâşifler) | terk sınırı 0 (= koloni × değişken), değişim oranı MR 0 (= tek değişken) (Levy: kâşif arı) |
+| Ant Colony (ACO) | Feromon ve hafif kesit tercihiyle kesit seçimi | Arşivin en kötüsüyle | 1 | α 1, β 0,5, buharlaşma ρ 0,2, feromon bırakan oran 0,2 |
+| Brain Storm (BSO) | Fikir kümeleri (k-means), bir veya iki kümeden yeni fikir | Açgözlü | 1 | küme 5; P(merkez değiştir) 0,2; P(tek küme) 0,8; P(merkez \| tek) 0,4; P(merkez \| iki) 0,5; logsig eğimi 20; adım 0,1 × aralık (Levy: değiştirilen merkez) |
+| Crow Search (CSA) | Başka karganın belleğini izleme veya rastgele hareket | Açgözlü | 1 | farkındalık AP 0,1; uçuş uzunluğu fl 2 (Levy: rastgele hareket) |
+| Firefly (FA) | Daha parlak ateş böceklerine doğru hareket | Açgözlü | 1 | α 0,2 × aralık; β0 1; βmin 0,2; γ 15 (normalize mesafe); α sönümü 0,97 / döngü |
+| Grasshopper (GOA) | Sosyal etkileşim, daralan konfor bölgesi | Doğrudan | 1 | cMax 1; cMin 0,00004; f 0,5; l 1,5 |
+| Teaching-Learning (TLBO) | Öğretmen ve öğrenci aşamaları (isteğe bağlı HS aşaması) | Açgözlü | 2 (HS ile 3) | öğretme faktörü 0 (= rastgele 1/2); HS aşaması hayır; HMCR 0,85; PAR 0,45 |
+| Tree-Seed (TSA) | Ağaç başına tohumlar, en iyi tohum ağacın yerine | Açgözlü | 2–5 | arama eğilimi ST 0,1; ağaç başına tohum 2–5 |
+| Grey Wolf (GWO) | Alfa, beta, delta kurtlarına göre hareket | Doğrudan (liderler saklanır) | 1 | başlangıç a 2 |
+| Honey Badger (HBA) | Kazma (kardioid) ve bal aşamaları | Açgözlü | 1 | β 6; C 2 |
+| Aquila (AO) | Yüksek süzülme, kontur uçuşu (Levy), alçak uçuş, yürüyerek yakalama | Açgözlü | 1 | α 0,1; δ 0,1 |
+
+Açıklamalar:
+- **Kabul kuralları:**
+  - *Açgözlü*: yeni tasarım yalnızca daha iyiyse eskisinin yerine geçer.
+  - *Doğrudan*: her zaman yerine geçer. GWO'da bulunan en iyi üç tasarım (alfa, beta, delta) ayrıca saklanır; en iyi tasarım kaybolmaz.
+  - *Arşivin en kötüsüyle*: ACO'da yeni tasarım, bellekteki en kötü tasarımla karşılaştırılır.
+- **Zamana bağlı katsayılar** (GWO `a`, GOA `c`, HBA yoğunluğu, BSO adımı, AO evreleri, Firefly α), yapılan analizin *Max. analyses* değerine oranıyla ilerler. *Max. analyses* değerini gerçekçi seçin: çok büyük bir değer, aramanın keşif aşamasında kalmasına yol açar.
+- **Yöntem durumu** (ABC deneme sayaçları, ACO feromonu, GWO liderleri) yedeğe yazılır; *Load BackUp* ile kaldığı yerden devam edilir.
+- Bütün yöntemler aynı değerlendirme altyapısını kullanır: geometri düzeltmesi, kısıt onarımı, önbellek, yedek ve ETABS yeniden başlatma.
+
+### 6.2 Hangi yöntem?
+- Kesin bir "en iyi yöntem" yoktur; sonuç modele ve ayarlara bağlıdır. Akademik karşılaştırmada her yöntemi aynı analiz sayısıyla ve birkaç farklı tohumla çalıştırıp ortalama ile en iyi sonucu raporlayın.
+- **Başlangıç için:** Harmony Search (bu programın asıl yöntemi) ve TLBO. TLBO'nun ayarlanacak parametresi neredeyse yoktur.
+- **Çok değişkenli modellerde** (20+ grup): TLBO, ABC ve TSA, üye başına birden fazla tasarım denedikleri için genellikle daha kararlı ilerler. Analiz bütçesini de o oranda hızlı harcarlar.
+- **Hızlı yakınsama gereken kısa koşularda:** GWO, HBA ve AO, en iyi tasarıma güçlü biçimde yönelir; erken bir yerel optimuma takılma riski vardır.
+- Levy seçeneği büyük sıçramalarla çeşitlilik ekler. Arama erken durgunlaşıyorsa açmayı deneyin.
+
+### 6.3 Bellek, analiz sayısı ve süre
+- **Analiz süresi:** 525M modelinde (525 eleman, 14 grup) bir değerlendirme ortalama 13–25 s sürüyor. Bu süreye onarım, önbellek ve yeniden başlatmalar dahildir.
+  - 1000 analiz: yaklaşık 4–7 saat.
+  - 5000 analiz: 1–1,5 gün.
+- **Süreye eklenen sabit aşamalar:** ilk sınır tasarımı (2–5 dakika), başlangıç belleği (*Memory size* × analiz süresi) ve final doğrulaması (3–5 dakika).
+- **Önerilen ayarlar:**
+
+  | Koşu | Memory size | Max. analyses |
+  |---|---|---|
+  | Deneme | 10 | 100 |
+  | Kısa | 20–30 | 500–1000 |
+  | Makale / tez | 30–50 | 3000–10000 |
+
+  Bellek, analiz sayısının yaklaşık %1–5'i olsun.
+- Uzun koşularda *Restart ETABS every* 100 ve *Reuse results* açık kalsın. Yedek kendiliğinden yazılır; elektrik kesintisinde koşu kaldığı yerden sürer (bölüm 8.3).
+
+---
+
+## 7. Kompozit kolonlar
+
+### 7.1 Gömülü kesitin oluşturulması (`EncasedSections.xml`)
 Her W kesiti için bir gömülü kesit üretilir:
-- H = d + 2·`ConcreteCover`, B = bf + 2·`ConcreteCover`; `DimensionRounding` değerine yukarı yuvarlanır, en az `MinDimension`.
-- Donatı çevreye dizilir. Yüz başına çubuk sayısı `MinBarsPerFace` değerinden başlar ve ρsr ≥ %0,4 olana kadar (en fazla `MaxBarsPerFace`) artırılır. Çap `RebarDiameter`, pas payı (çubuk merkezine) `RebarCover`.
-- `K22`, `K33`: burkulma boyu katsayıları. `B2`: yanal ötelemeli çerçeve büyütme katsayısı.
-- `SteelUnitCost` (kN), `RebarUnitCost` (kN), `ConcreteUnitCost` (m³), `FormworkUnitCost` (m²): amaç fonksiyonundaki **göreli** birim maliyetlerin varsayılan değerleri.
-- `FlexureMethod`: gömülü kesitte eğilme dayanımı yöntemi.
+- **Boyutlar:** H = d + 2·`ConcreteCover`, B = bf + 2·`ConcreteCover`. Sonuç `DimensionRounding` değerine yukarı yuvarlanır ve en az `MinDimension` olur.
+- **Donatı:** çevreye dizilir. Yüz başına çubuk sayısı `MinBarsPerFace` değerinden başlar ve ρsr ≥ %0,4 olana kadar (en fazla `MaxBarsPerFace`) artırılır. Çap `RebarDiameter`, pas payı (çubuk merkezine) `RebarCover`.
+- **Katsayılar:** `K22`, `K33` burkulma boyu katsayıları, `B2` yanal ötelemeli çerçeve büyütme katsayısıdır (P-Delta analizinde 1).
+- **`FlexureMethod`:** gömülü kesitte eğilme dayanımı yöntemi.
   - `StrainCompatibility` (varsayılan, AISC I1.2b): ETABS kompozit kolon tasarımıyla uyumlu.
-  - `PlasticStress` (I1.2a): önceki yöntem. Zayıf eksende yaklaşık %19 yüksek Mn veriyordu.
-- `TieDiameter`, `TieSpacing`: ETABS ile doğrulamada gömülü kesitin etriyeleri.
+  - `PlasticStress` (I1.2a): önceki yöntem; zayıf eksende yaklaşık %19 yüksek Mn veriyordu.
+- **`TieDiameter`, `TieSpacing`:** ETABS ile doğrulamada gömülü kesitin etriyeleri.
+- **Birim maliyetlerin dosya varsayılanları:** `SteelUnitCost`, `RebarUnitCost`, `ConcreteUnitCost`, `FormworkUnitCost`.
 
-### Birim maliyetler (kullanıcı paneli)
-Birim maliyetler formda girilir: **Structural Properties** sekmesi → **Composite Cost (relative unit prices)** grubu.
+Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff), ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları programın çıktılarında yer alır.
+
+### 7.2 Kontroller (AISC 360-16 / 360-22, LRFD)
+- Eksenel basınç ve çekme (I2)
+- Eğilme: şekil değiştirme uyumu (varsayılan) veya plastik gerilme dağılımı
+- B1 büyütmeli H1-1 etkileşimi
+- Kesme: çelik profil; güçlü eksende G2.1(b) Cv1
+- Detay sınırları: As ≥ %1 Ag, ρsr ≥ %0,4
+
+Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğüdür.
+
+### 7.3 Birim maliyetler
+Birim maliyetler **Structural Properties** sekmesindeki **Composite Cost (relative unit prices)** grubunda girilir.
 
 | Alan | Birim | Varsayılan |
 |---|---|---|
@@ -176,68 +351,148 @@ Birim maliyetler formda girilir: **Structural Properties** sekmesi → **Composi
 | *Formwork* | m² kalıp başına (kolon çevresi × boy) | 0,15 |
 
 Varsayılanların dayandığı birim fiyat varsayımları:
-- uygulanmış yapısal çelik 2,0 $/kg (≈ 204 $/kN),
-- donatı 1,0 $/kg (≈ 102 $/kN),
-- yerine konmuş C30 beton 120 $/m³,
+- uygulanmış yapısal çelik 2,0 $/kg (≈ 204 $/kN);
+- donatı 1,0 $/kg (≈ 102 $/kN);
+- yerine konmuş C30 beton 120 $/m³;
 - kolon kalıbı 30 $/m².
 
-Oranlar çelik = 1 alınarak bu fiyatlara bölünerek bulundu.
+Oranlar, bu fiyatların çelik fiyatına bölünmesiyle bulundu (çelik = 1).
 
-- Form açılırken alanlar `EncasedSections.xml` dosyasındaki değerlerle dolar. Koşuda formdaki değerler kullanılır ve `ErrorLog.txt` dosyasına `Info: unit costs (form) …` satırıyla yazılır.
-- Değerler göreli olmalıdır; birimleri ve oranları çalışmanızın fiyatlarından türetin. Örneğin çelik 1 alınırsa diğerleri çeliğe oranla verilir.
-- Değerler negatif olamaz ve en az biri sıfırdan büyük olmalıdır; aksi hâlde form uyarı verir.
-- Değerler yedeğe (`<çıktı>.backup.xml`) kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
-- Amaç fonksiyonu: çelik modunda yalnızca çelik ağırlığı (kN). Kompozit modda çelik·*Steel* + donatı·*Rebar* + beton hacmi·*Concrete* + kalıp alanı·*Formwork*.
+- Form açılırken alanlar `EncasedSections.xml` değerleriyle dolar. Koşuda formdaki değerler kullanılır ve günlüğe `Info: unit costs (form) …` satırıyla yazılır.
+- Değerler negatif olamaz ve en az biri sıfırdan büyük olmalıdır.
+- Değerler yedeğe kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
 
-> **Dikkat:** Varsayılanlar yukarıdaki örnek fiyatlardan türetilmiştir. Optimum çözüm bu oranlara doğrudan bağlıdır; çalışmanızın (ülke, yıl) fiyat oranlarını formda girin.
+> **Dikkat:** optimum çözüm bu oranlara doğrudan bağlıdır. Çalışmanızın (ülke, yıl) fiyat oranlarını girin.
 
-Kontrol edilenler (AISC 360-16 / 360-22, LRFD; gömülü kesitte iki sürüm aynıdır):
-- Eksenel basınç / çekme (I2)
-- Plastik gerilme dağılımıyla eğilme (I3.3)
-- B1 büyütmeli H1-1 etkileşimi
-- Kesme (çelik profil)
-- Detay sınırları (As ≥ %1 Ag, ρsr ≥ %0,4)
-
-Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğüdür.
-
-**ETABS ile doğrulama (ETABS 20+):** arama sırasında kolonlar hızlı iç çözücüyle kontrol edilir. Koşu sonunda en iyi tasarım ETABS'in kendi kompozit kolon tasarımıyla doğrulanır; *Check Structure* modunda da aynı doğrulama yapılır.
+### 7.4 ETABS ile doğrulama, koruma ve kalibrasyon
+Arama sırasında kolonlar hızlı iç çözücüyle kontrol edilir. Koşu sonunda (ve *Check Structure*'da) en iyi tasarım ETABS'in kendi kompozit kolon tasarımıyla doğrulanır (ETABS 20+):
 - Kolonlar gerçek gömülü kesitlere (Concrete Encasement Rectangle + donatı) çevrilir, model yeniden analiz edilir ve ETABS kompozit tasarımı formdaki *Composite code* ile çalışır.
-- Her grup için ETABS PMM ve kesme oranı, iç çözücünün dayanım ve detay oranlarıyla yan yana yazılır:
-  - `ErrorLog.txt`: `Info: ETABS composite check …`
-  - sonuç XML'i: `ETABSCompositeCheck`
-  - `.check.xml`
-- `_best.EDB` gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
-- Bu adım tüm kolonlar için birkaç dakika sürer (525M: yaklaşık 3 dakika).
+- Her grup için ETABS PMM ve kesme oranı, iç çözücünün dayanım ve detay oranlarıyla yan yana yazılır: `ErrorLog.txt` (`Info: ETABS composite check …`), sonuç XML'i, Excel'deki *ETABS composite* sayfası.
+- Bu adım 525M modelinde yaklaşık 3 dakika sürer. `_best.EDB` gömülü kesitleri ve ETABS tasarım sonuçlarını içerir.
 - **Fark:** 525M modelinde ETABS oranları iç çözücüden %0,5–14 yüksek çıktı. Fark çoğunlukla zayıf eksen moment kapasitesinden gelir.
-- **ETABS koruması:** ETABS oranı 1'i aşan kompozit grup otomatik olarak bir üst kesite çıkarılır. Tasarım yeniden analiz edilip ETABS ile yeniden doğrulanır (en fazla 3 adım).
-  - Günlükte `Info: ETABS guard …` satırları görünür. `FinalCheck` ve `_best.EDB` korunmuş tasarımı içerir.
-  - Aşan grup üst sınırdaysa uyarı yazılır.
-  - Final tasarım (veya *Check Structure* ile kontrol edilen tasarım) tüm kontrolleri sağlamıyorsa koşu sonundaki mesaj kutusu "completed successfully" yerine uyarı gösterir.
-- **Kalibrasyon:** günlükteki `ETABS / internal composite strength ratio (max)` satırı önerilen `CompositeStrengthFactor` değerini verir. Bu değeri `App.config` dosyasına yazarsanız arama ETABS ile uyumlu, güvenli tarafta yürür.
+- **Koruma:** ETABS oranı 1'i aşan grup otomatik olarak bir üst kesite çıkarılır. Seçilen kesit alanı daha büyük olan ve komşu kolonlar ile kiriş bağlantılarıyla geometri kısıtlarını sağlayan ilk kesittir. Tasarım yeniden analiz edilir ve doğrulanır; en fazla 3 adım yapılır.
+  - Günlükte `Info: ETABS guard …` satırları görünür.
+  - Excel'in *Design* sayfasında "Final design" sütunu korunmuş tasarımı gösterir.
+- **Kalibrasyon:** günlükteki `ETABS / internal composite strength ratio (max)` satırı, iç çözücüyü ETABS ile uyumlu yapacak `CompositeStrengthFactor` değerini önerir (525M modelinde 1,08–1,12). Bu değeri ayar dosyasına yazarsanız arama ETABS ile uyumlu ve güvenli tarafta yürür; final koruması daha az devreye girer.
 
-Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.
+---
 
-## 5. Çıktılar
+## 8. Koşuyu izleme, durdurma ve devam ettirme
+
+### 8.1 İzleme
+- Koşu arka planda çalışır. ETABS hesap yaparken de form yanıt verir ve alanlar canlı güncellenir. Koşu sırasında ayarlar kilitlenir.
+- **Durum satırı** (ilerleme alanlarının altında) o anki aşamayı ve aşamada geçen süreyi gösterir. Aşamalar şunlardır:
+  - *Starting ETABS*, *Opening the working copy*, *Reading the model*;
+  - *Initial design with the auto select lists*, birkaç dakika sürebilir;
+  - *Initial memory: design 3 / 100*;
+  - *Search: loop 2, member 17 / 100*;
+  - *Restarting ETABS (memory)*;
+  - *Final analysis and ETABS check*, *ETABS composite column design …*, *ETABS guard step …*.
+
+  Koşu bitince durum satırında *Finished*, *Stopped* veya *Failed (see ErrorLog.txt)* yazar.
+- Ayrıntılı ilerleme `ErrorLog.txt` dosyasındadır (model klasöründe). Dosya koşu sürerken de okunabilir.
+
+### 8.2 Durdurma
+- Koşu sırasında **Start** düğmesi **Stop** olur. Stop, onaydan sonra koşuyu o anki değerlendirmenin sonunda durdurur: yedek yazılır, ETABS kapatılır ve koşuya devam edilebileceğini söyleyen bir mesaj çıkar.
+- Koşu sürerken pencere kapatılırsa onay istenir; koşu aynı şekilde durdurulur ve program kapanır.
+- Uzun ETABS aşamalarında (ilk sınır tasarımı, final kontrol) Stop ancak o aşama bitince etkili olur. Bu sırada durum satırında *Stopping after the current evaluation...* yazar.
+- Programı Görev Yöneticisi'nden sonlandırmak ya da elektrik kesilmesi de yedeği bozmaz; son yedekten devam edilir.
+
+### 8.3 Devam ettirme (*Load BackUp File*)
+1. *Output File* alanında kesilen koşunun **aynı çıktı dosyasını** seçin. Yedek bu dosyanın yanında `<çıktı>.backup.xml` adıyla durur.
+2. *Load BackUp File* kutusunu işaretleyip **Start**'a basın. Form ayarları yedekten okunur.
+3. Devam etmeden önce bir **özet** gösterilir: model, kayıt zamanı, yöntem, tohum, analiz sayısı, en iyi maliyet. Yanlış dosya seçildiyse burada görülür; **No** ile vazgeçin.
+4. Program yeni bir çalışma kopyası açar, ilk sınır tasarımını yeniden yapar ve arama belleğiyle devam eder. Sonuç önbelleği (`<çıktı>.cache.txt`) de okunur; analiz edilmiş tasarımlar tekrar analiz edilmez.
+
+Yedeğin yazılması:
+- Yedek her döngü sonunda ve döngü içinde 10 dakikada bir yazılır. Kesintide en çok son 10 dakikanın işi kaybolur; yarıda kalan döngü baştan yapılır.
+- Yedek önce geçici dosyaya yazılıp sonra eskisinin yerine geçer. Önceki yedek `.backup.xml.bak` olarak saklanır.
+- Yeni (yedeksiz) bir koşu, aynı çıktı dosyasına ait eski yedeği ve önbelleği siler.
+- Rastgele sayı üretecinin durumu kaydedilemez: devam eden koşu, kesintisiz bir koşuyla birebir aynı sonucu vermez.
+
+Yedek denetimleri:
+| Durum | Program ne yapar |
+|---|---|
+| Son yedek bozuk veya tutarsız (bellek boş, değişken sayısı farklı, kesit numarası kütüphane dışında) | `.bak` denenir. İkisi de kullanılamazsa iki dosyanın hatasını gösteren bir mesaj çıkar ve koşu başlamaz. |
+| Formda başka bir model seçili | Yedeğin modeli gösterilir ve o modelle devam edilip edilmeyeceği sorulur. |
+| Model yedekten sonra değiştirilmiş (SHA-256 özeti farklı) | Uyarı çıkar: yedekteki tasarımlar değişen modele uymayabilir; devam kararı kullanıcıya bırakılır. |
+| Tasarım grupları veya kesit kütüphanesi farklı (ETABS modeli okuduktan sonra) | Koşu açık bir mesajla durur. |
+| Yedek başlangıç belleği sırasında yazılmış (eksik bellek) | Eksik tasarımlar üretilir ve yöntem durumu kurulur. |
+
+---
+
+## 9. Çıktılar ve sonuçların yorumlanması
+
+### 9.1 Dosyalar
 | Dosya | İçerik |
 |---|---|
-| `<çıktı>.xlsx` | Sonucun Excel kitabı (Excel kurulu olmasa da yazılır). Sayfalar: *Summary* (ayarlar, maliyet, ceza, kontrollerin durumu), *Cost* (grup başına kesit, üye sayısı, uzunluk, çelik / donatı ağırlığı, beton hacmi, kalıp alanı, kalem maliyetleri, toplam ve pay; son satır toplam), *Design* (final ve arama sonucu kesitleri), *Constraints*, *ETABS composite*, *History*. Dosya Excel'de açıksa `<çıktı>_<tarih>.xlsx` adıyla yazılır. Formdaki **Excel** düğmesi seçili çıktı dosyasından (ve varsa `.check.xml` dosyasından) kitabı yeniden oluşturur; eski sürümlerin çıktılarında maliyet sayfası boştur. |
+| `<çıktı>.xlsx` | Sonucun Excel kitabı (Excel kurulu olmasa da yazılır), bkz. 9.2. Dosya Excel'de açıksa `<çıktı>_<tarih>.xlsx` adıyla yazılır. |
 | `<çıktı>.check.xlsx` | Check Structure kitabı: özet, maliyet, grup oranları, ötelemeler, ETABS kompozit kontrolü |
-| Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. `CostBreakdown`: final tasarımın grup başına maliyet dökümü (son satır toplam). `FinalDesignPrint`: final tasarımın kesitleri (ETABS koruması kesit değiştirdiyse aramanın en iyisinden farklıdır). `FinalCheck`: en iyi tasarımın düzeltmesiz ve tüm durumlarla final analizi (maliyet, ceza). `FinalConstraints`: belirleyici kısıtlar (oran / sınır). `ETABSCompositeCheck`: ETABS kompozit kolon kontrolü. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
-| `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
-| Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir. Kesilen koşuların klasörleri 2 gün sonra bir sonraki koşuda silinir. |
-| `ErrorLog.txt` (model klasörü) | Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |
-| `<çıktı>.backup.xml` (+ `.bak`) | Kesilen koşuya devam için yedek (her çevrimde ve 10 dakikada bir) |
+| `<çıktı>.xml` | Sonuç (makine okunur). Kitaptaki tüm bilgiler ve `Seed`, `GlobalBest`, `FinalCheck`, `FinalConstraints`, `CostBreakdown`, `FinalDesignPrint`, `ETABSCompositeCheck`, `FormInfo` (koşu ayarları). |
+| `<model>_best.EDB` | En iyi (final) tasarımın ETABS modeli, orijinal modelin klasöründe |
+| `ErrorLog.txt` | Model klasöründe. Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabetleri yazar. |
+| `<çıktı>.backup.xml` (+ `.bak`) | Kesilen koşuya devam için yedek |
 | `<çıktı>.cache.txt` | Sonuç önbelleği; devam eden koşu okur, yeni koşu siler |
 
-## 6. Sık karşılaşılan durumlar
-| Mesaj (`ErrorLog.txt`) | Neden / çözüm |
+### 9.2 Excel kitabı (`<çıktı>.xlsx`)
+| Sayfa | İçerik |
 |---|---|
-| `Info: ETABS 22.x.x (…)` | Bağlanılan ETABS sürümü ve yolu. |
-| `ETABS program not found` / `Section property file not found` | `App.config` yollarını düzeltin. |
+| *Summary* | Model, yöntem, tohum, bellek boyutu, analiz sayısı, kodlar, öteleme sınırları, birim maliyetler; aramanın en iyisi ile finalin maliyeti ve cezası; **"Final design satisfies all checks"** |
+| *Cost* | Grup başına kesit, tür (çelik / kompozit), üye sayısı, uzunluk, çelik ve donatı ağırlığı, beton hacmi, kalıp alanı, kalem maliyetleri, toplam ve toplam içindeki pay; son satır toplam |
+| *Design* | Grup başına final tasarımın ve aramanın en iyisinin kesitleri |
+| *Constraints* | Final tasarımın belirleyici kısıtları (oran / sınır; 1'e yakın değerler kısıtın sınırda olduğunu gösterir) |
+| *ETABS composite* | Kompozit gruplarda ETABS PMM ve kesme oranı, iç çözücü oranları, ETABS mesajı |
+| *History* | İyileşme geçmişi (analiz, döngü, en iyi cezalı maliyet, ceza); yakınsama grafiği için |
+
+Formdaki **Excel** düğmesi, seçili çıktı dosyasından kitabı yeniden oluşturur. Eski sürümlerin çıktılarında maliyet dökümü bulunmadığı için *Cost* sayfası boş kalır.
+
+### 9.3 Sonuçların yorumlanması
+- **Arama sonucu ve final farkı:**
+  - "Best design of the search" aramada bulunan en iyi tasarımdır; maliyeti düzeltmeli değerlendirmeden gelir.
+  - "Final design" bu tasarımın tüm durumlarla ve düzeltmesiz analizidir; ETABS koruması kesit değiştirdiyse o tasarımdır.
+  - Raporlamada **final tasarımı** kullanın.
+- **"Final design satisfies all checks" = NO** iki durumda çıkar:
+  - final analizinde ceza > 0 (bir kısıt aşılıyor), ya da
+  - ETABS kompozit kontrolünde bir grup 1'i aşıyor ve koruma 3 adımda çözemiyor.
+
+  Nedeni *Constraints* ve *ETABS composite* sayfalarında, ayrıntısı `ErrorLog.txt` dosyasında görülür. Çözüm için `CompositeStrengthFactor` değerini önerilen değere ayarlayın veya daha uzun bir koşu yapın.
+- **Belirleyici kısıtlar:** *Constraints* sayfasında 1'e yakın değerler tasarımı belirleyen kısıtlardır. Öteleme belirleyiciyse kolon ve kiriş rijitliği, dayanım oranı belirleyiciyse kesit dayanımı sınırdadır.
+- **Yakınsama:** *History* sayfasından maliyetin analiz sayısıyla değişimi çizilebilir. Son analizlerde iyileşme yoksa arama yakınsamıştır. Hâlâ iyileşiyorsa daha fazla analiz faydalı olabilir.
+- **Doğrulama:** `<model>_best.EDB` dosyasını ETABS'te açın. Çelik tasarımını ve (kompozit modda) kompozit kolon tasarımını ETABS'te görebilirsiniz.
+
+---
+
+## 10. Check Structure: bir tasarımı kontrol etme
+Bir çıktı dosyasındaki tasarımı, aynı veya değiştirilmiş bir modelde düzeltme yapmadan kontrol eder.
+1. *ETABS Model*: kontrol edilecek modeli seçin.
+2. *Output File*: kesitleri okunacak sonuç dosyasını (`*.xml`) seçin.
+3. *Check Structure Only* kutusunu işaretleyip **Start**'a basın.
+4. Program kesitleri grup adlarına göre eşler, analiz ve tasarım yapar. Kompozit modda ETABS kompozit kolon doğrulaması da yapılır.
+5. Sonuçlar `<çıktı>.check.xml` ve `<çıktı>.check.xlsx` dosyalarına yazılır. Tasarım kontrolleri sağlamıyorsa mesaj kutusu cezayı ve en büyük ETABS oranını gösterir.
+
+---
+
+## 11. Sık karşılaşılan durumlar
+| Mesaj veya durum | Neden / çözüm |
+|---|---|
+| `Info: ETABS 22.x.x (…)` | Bağlanılan ETABS sürümü ve yolu |
+| `ETABS program not found` / `Section property file not found` | Ayar dosyasındaki yolları düzeltin (bölüm 2.3). |
 | `Warning: 'ETABSProgramPath' not found …, using …` | Ayardaki yol bulunamadı; kurulu en yeni ETABS kullanıldı. Ayarı düzeltin. |
-| `DesignSteel.SetCode, code not available` | Formda ETABS API'sinin desteklediği bir kod seçin (ETABS 22: AISC 360-22; ETABS 19: AISC 360-10). |
-| `No strength design combination` | Kombinasyon tanımlayın veya otomatik kombinasyon seçeneğini açın. |
-| `No lateral (wind/earthquake) combination` | Yük desenlerinin tipini Wind/Quake yapın veya öteleme modunu "All" seçin. |
-| `Warning: analysis not finished …` | Aday tasarım kararsız; ceza alır ve arama devam eder. Hata değildir. |
+| `DesignSteel.SetCode, code not available` | ETABS API'sinin desteklediği bir kod seçin (ETABS 22: AISC 360-22; ETABS 19: AISC 360-10). |
+| `No strength design combination` | Kombinasyon tanımlayın veya *Create default design combos* seçeneğini açın. |
+| `No lateral (wind/earthquake) combination` | Yük desenlerinin tipini Wind / Quake yapın veya öteleme modunu değiştirin. |
+| `Warning: analysis not finished …` | Aday tasarım kararsız (ör. P-Delta yakınsamadı); ceza alır ve arama devam eder. Hata değildir. |
+| `Warning: seismic drift cases … use elastic displacements` | `SeismicDriftAmplification` ayarlanmamış (1,0). Deprem ötelemesi kontrol ediliyorsa Cd/Ie veya R/I girin. |
+| `Warning: ETABS / internal composite strength ratio (max) …` | İç kompozit çözücü ETABS'ten iyimser. Önerilen `CompositeStrengthFactor` değerini ayar dosyasına yazın (bölüm 7.4). |
+| `Info: ETABS guard …` | Final tasarımda ETABS'te aşan kolon büyütüldü (bölüm 7.4). |
+| `Info: steel design strength combinations selected again` | ETABS yeniden açılan modelde kombinasyon seçimini silmişti; program yeniden seçti. Bilgi amaçlıdır. |
+| `Info: ETABS restart …` | Bellek için ETABS yeniden başlatıldı (bölüm 5.3). |
 | `PropMaterial.GetOConcrete …` | `EncasedSections.xml` içindeki malzeme adı modelde yok. |
 | `Design section … is not a W section` | Otomatik listede kütüphane dışı kesit var; o grup için orta kesit kullanılır. |
+| `Warning: Excel workbook not written …` | Excel dosyası yazılamadı (ör. klasör yolu çok uzun, bkz. 2.2). Sonuç XML'i yazılmıştır; formdaki **Excel** düğmesiyle tekrar deneyin. |
+| Mesaj: *The backup cannot be used …* | Yedek ve `.bak` bozuk; yeni bir koşu başlatın. |
+| Mesaj: *The backup belongs to another model …* | Formda başka bir model seçili. Yedeğin modeliyle devam etmek için **Yes**, vazgeçmek için **No**. |
+| Mesaj: *The model was changed after the backup was written …* | Model yedekten sonra değişmiş. Değişiklik tasarım gruplarını etkiliyorsa **No** ile yeni koşu başlatın. |
+| Mesaj: *The run cannot be continued: the design groups … differ* | Yedek bu modelin değil veya gruplar değişmiş; yeni bir koşu başlatın. |
+| Form güncellenmiyor gibi görünüyor | Durum satırına bakın: uzun bir ETABS aşamasında (ilk sınır tasarımı, final) süre ilerler, sayılar ancak aşama bitince değişir. |
+| Koşu bitti ama ETABS hâlâ açık | Normalde program kendi açtığı ETABS'i kapatır; kapanmazsa 60 s sonra sonlandırır. Sizin açtığınız ETABS'e dokunulmaz. |

@@ -15,3 +15,6 @@ ErrorLog.txt
 BackUp.xml
 *.EDB
 *.ebk
+
+# temporary clean-clone build test
+_cc/
