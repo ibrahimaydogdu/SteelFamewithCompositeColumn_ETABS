@@ -5,6 +5,29 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 16: Paylaşıma hazırlık
+
+- **README.md** (İngilizce; GitHub açılış sayfası) eklendi: özellikler, gereksinimler, derleme ve çalıştırma, belgeler, atıf ricası.
+- **LICENSE** eklendi: MIT lisansı (ücretsiz; kullanım, değiştirme ve dağıtım serbest, telif notu korunmalı).
+- **Kullanım kılavuzu** baştan düzenlendi ve ayrıntılandırıldı. Yeni bölümler:
+  - programın akışı ve amaç fonksiyonu;
+  - gereksinimler ve derleme;
+  - adım adım ilk koşu;
+  - model kontrol listesi;
+  - Memory Update seçeneklerinin anlamı;
+  - yöntem seçimi ile bellek, analiz sayısı ve süre önerileri;
+  - koşuyu izleme, durdurma ve devam;
+  - Excel sayfaları ve sonuçların yorumlanması;
+  - Check Structure adımları;
+  - genişletilmiş sorun tablosu.
+- **Düzeltme:** kılavuzda kompozit eğilme kontrolü "plastik gerilme dağılımı" olarak yazıyordu. Varsayılan şekil değiştirme uyumu olarak düzeltildi.
+- `Inputinfo.txt` kaldırıldı. Kodda kullanılmıyordu ve kişisel bir klasör yolu içeriyordu.
+- **Temiz kopyadan derleme testi** (depo yeniden klonlandı, NuGet indirildi, MSBuild):
+  - İlk denemede derleme **başarısız** oldu. `My Project\Resources.resx`, depoda olmayan `bin\Debug\Slab_data.xml` dosyasına başvuruyordu; bu, kullanılmayan ve eski bir projeden kalmış bir kaynaktı.
+  - Kaynak kaldırıldıktan sonra temiz kopya hatasız ve uyarısız derlendi. Çıktı klasöründe exe, config, `EncasedSections.xml`, `ETABSv1.dll` ve `DocumentFormat.OpenXml.dll` var.
+
+---
+
 ## 2026-10-02 — Aşama 15: Yeni optimizasyon yöntemleri ve Optimization sekmesi
 
 ### Mevcut yöntemler
