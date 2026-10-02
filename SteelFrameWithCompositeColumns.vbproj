@@ -137,6 +137,7 @@
     </Compile>
     <Compile Include="OptimizationClass.vb" />
     <Compile Include="ExcelExport.vb" />
+    <Compile Include="OptimizationMethods.vb" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="MainForm.resx">

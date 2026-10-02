@@ -113,7 +113,34 @@ Program seçilen modeli **değiştirmez**:
     - En iyi tasarım (`_best.EDB`) tüm durumlarla yeniden analiz edilir.
 
 **Optimization sekmesi**
-- **General Parameters:** bellek boyutu (*Memory size*), en fazla analiz sayısı (*Max. analyses*), bellek güncelleme türü, yöntem (HS, BBO, Whale, Dandelion).
+- Sol tarafta **General** ve **Evaluation** grupları, sağ tarafta **Method parameters** grubu yer alır. Method parameters, seçili yöntemin açıklamasını, kaynağını, kabul kuralını, Levy seçeneğinin etkisini ve parametrelerini gösterir. Parametre adının üzerine gelince sınırlar ve açıklama görünür. Yöntem değiştirildiğinde girilen değerler kaybolmaz.
+- **General:**
+  - *Method*: 15 yöntem (aşağıdaki tablo).
+  - *Memory / population size*: bellek (popülasyon, koloni, sürü) boyutu.
+  - *Max. analyses*: en fazla ETABS analizi.
+  - *Memory Update*: yalnızca HS, BBO, Whale ve Dandelion için geçerlidir. Diğer yöntemler kendi kabul kuralını kullanır; bu durumda seçenek soluk görünür.
+  - *Levy Flight*: yalnızca BBO, ABC, BSO ve Crow'da etkilidir; kutuda ne değiştirdiği yazar. Diğer yöntemlerde soluk görünür.
+- **Yöntemler** (ayrıntı ve parametreler formdaki Method parameters kutusunda):
+
+| Yöntem | Kabul | Üye başına analiz | Parametreler (varsayılan) |
+|---|---|---|---|
+| Harmony Search (HS) | Memory update | 1 | PAR 0,6; HMCR 0,9; PAR / HMCR türü (Static, Dynamic, Adaptive) |
+| Biogeography-Based (BBO) | Memory update | 1 | mutasyon oranı 0,1 (Levy: mutasyon) |
+| Whale (WOA), Dandelion (DO) | Memory update | 1 | — |
+| Artificial Bee Colony (ABC) | açgözlü | 2 (+ kâşif arılar) | terk sınırı (0 = koloni × değişken), değişim oranı MR (0 = tek değişken) (Levy: kâşif arı) |
+| Ant Colony (ACO) | arşivin en kötüsüyle | 1 | α 1, β 0,5 (hafif kesit tercihi), buharlaşma ρ 0,2, feromon bırakan oran 0,2 |
+| Brain Storm (BSO) | açgözlü | 1 | küme sayısı 5, P(merkez değiştir) 0,2, P(tek küme) 0,8, P(merkez | tek) 0,4, P(merkez | iki) 0,5, logsig eğimi 20, adım 0,1 × aralık (Levy: değiştirilen merkez) |
+| Crow Search (CSA) | açgözlü | 1 | farkındalık AP 0,1, uçuş uzunluğu fl 2 (Levy: rastgele hareket) |
+| Firefly (FA) | açgözlü | 1 | α 0,2 × aralık, β0 1, βmin 0,2, γ 15 (normalize mesafe), α sönümü 0,97 / çevrim |
+| Grasshopper (GOA) | doğrudan | 1 | cMax 1, cMin 0,00004, f 0,5, l 1,5 |
+| Teaching-Learning (TLBO) | açgözlü | 2 (HS aşamasıyla 3) | öğretme faktörü (0 = rastgele 1/2), HS aşaması (TLBO-HS) ve HMCR 0,85, PAR 0,45 |
+| Tree-Seed (TSA) | en iyi tohum, açgözlü | 2–5 | arama eğilimi ST 0,1, ağaç başına tohum 2–5 |
+| Grey Wolf (GWO) | doğrudan (alfa, beta, delta saklanır) | 1 | başlangıç a 2 |
+| Honey Badger (HBA) | açgözlü | 1 | β 6, C 2 |
+| Aquila (AO) | açgözlü | 1 | α 0,1, δ 0,1 |
+
+  - Zamana bağlı katsayılar (GWO `a`, GOA `c`, HBA yoğunluk, BSO adım, AO evreleri) analiz sayısının en fazla analize oranıyla ilerler.
+  - Yöntem durumu (ABC deneme sayaçları, ACO feromonu, GWO liderleri) yedeğe yazılır; *Load BackUp* ile devam edilir.
 - **Evaluation:**
   - *Repair mode*: kısıt ihlallerinin düzeltilme şekli.
     - **Combined (faster)**, varsayılan: öteleme ve PMM düzeltmeleri tek analizin sonuçlarından birlikte yapılır, ardından bir yeniden analiz. 525M modelinde değerlendirme başına yaklaşık 26 s.
@@ -126,7 +153,6 @@ Program seçilen modeli **değiştirmez**:
     - Sonuçlar değişmez: aynı tasarım yeniden başlatmadan önce ve sonra aynı öteleme, çelik ve kompozit oranlarını verir (fark yalnızca 1e-13 düzeyinde çözücü gürültüsü).
     - Bir yeniden başlatma 525M modelinde yaklaşık 40–47 s sürer (100 analizde bir: yaklaşık %2 ek süre); bellek yaklaşık 580 MB'a iner. Günlük: `Info: ETABS restart …` (bellek, model dosyası, çalışma klasörü boyutu).
     - Yeniden başlatma kaydedilen `.EDB` modeliyle yapılır. `.e2k` ile yeniden oluşturma denendi ve kullanılmadı: ETABS 22.6'da `.e2k` model verilerinin bir kısmını taşımıyor (525M modelinde ötelemeler %15 farklı çıktı).
-- **HS / BBO parametreleri.**
 
 ## 4. Kompozit kolon ayarları (`EncasedSections.xml`)
 Her W kesiti için bir gömülü kesit üretilir:

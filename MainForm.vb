@@ -84,10 +84,132 @@ Public Class MainForm
         End If
     End Sub
 
+    '_______________________________________________________________________________________________
+    'Optimization tab: method list and parameters from MethodCatalog. UiOpt keeps the values of every method while
+    'the form is open (switching the method does not lose the edited values).
+    Private UiOpt As OptimizationStructure_.OptInfo_
+    Private PanelMethod As Object                   'method shown in ParamTable (Nothing: none)
+    Private ReadOnly ParamControls As New Dictionary(Of String, Windows.Forms.Control)
+    Private ReadOnly Tips As New ToolTip()
+
+    Private Function SelectedMethod() As OptimizationStructure_.OptMethod_
+        Return CType(Math.Max(Opt_method.SelectedIndex, 0), OptimizationStructure_.OptMethod_)
+    End Function
+
+    Private Sub InitMethodUi()
+        Opt_method.DropDownStyle = ComboBoxStyle.DropDownList
+        Opt_method.Items.Clear()
+        For Each d In MethodCatalog.Methods.OrderBy(Function(x) CInt(x.Method))
+            Opt_method.Items.Add(d.Name)
+        Next
+        If Opt_method.SelectedIndex < 0 Then Opt_method.SelectedIndex = 0
+        BuildPanel()
+    End Sub
+
+    Private Sub Opt_method_SelectedIndexChanged(sender As Object, e As EventArgs) Handles Opt_method.SelectedIndexChanged
+        If MethodCatalog.Methods Is Nothing OrElse Opt_method.Items.Count <> MethodCatalog.Methods.Count Then Return
+        SavePanel()
+        BuildPanel()
+    End Sub
+
+    'current panel values -> UiOpt
+    Private Sub SavePanel()
+        If PanelMethod Is Nothing Then Return
+        Dim m As OptimizationStructure_.OptMethod_ = CType(PanelMethod, OptimizationStructure_.OptMethod_)
+        For Each p In MethodCatalog.Find(m).Params
+            Dim c As Windows.Forms.Control = Nothing
+            If Not ParamControls.TryGetValue(p.Key, c) Then Continue For
+            Dim v As Double
+            If TypeOf c Is ComboBox Then
+                v = Math.Max(CType(c, ComboBox).SelectedIndex, 0)
+            ElseIf TryNum(c.Text, v) Then
+            Else
+                Continue For           'invalid text: checked by CheckParams
+            End If
+            MethodCatalog.SetParam(UiOpt, m, p.Key, v)
+        Next
+    End Sub
+
+    Private Sub BuildPanel()
+        Dim m As OptimizationStructure_.OptMethod_ = SelectedMethod()
+        Dim d As MethodDef_ = MethodCatalog.Find(m)
+        ParamTable.SuspendLayout()
+        ParamTable.Controls.Clear()
+        ParamTable.RowStyles.Clear()
+        ParamControls.Clear()
+        ParamTable.RowCount = d.Params.Count + 1          'last row: filler (takes the remaining height)
+        For r = 0 To d.Params.Count - 1
+            Dim p As ParamDef_ = d.Params(r)
+            Dim v As Double = MethodCatalog.GetParam(UiOpt, m, p.Key)
+            Dim Lbl As New Label With {.Text = p.Label, .AutoSize = True, .Anchor = AnchorStyles.Top Or AnchorStyles.Left, .Margin = New Padding(0, 6, 0, 0)}
+            Dim C As Windows.Forms.Control
+            If p.Choices IsNot Nothing Then
+                Dim Cb As New ComboBox With {.DropDownStyle = ComboBoxStyle.DropDownList, .Dock = DockStyle.Fill}
+                Cb.Items.AddRange(p.Choices)
+                Cb.SelectedIndex = Math.Min(Math.Max(CInt(v), 0), p.Choices.Length - 1)
+                C = Cb
+            Else
+                C = New TextBox With {.Text = Num(v), .TextAlign = HorizontalAlignment.Right, .Dock = DockStyle.Fill}
+            End If
+            Dim TipText As String = p.Label & If(p.Choices Is Nothing, " (" & Num(p.Min) & " .. " & Num(p.Max) & If(p.IsInteger, ", integer", "") & ")", "") & If(p.Tip IsNot Nothing, Environment.NewLine & p.Tip, "")
+            Tips.SetToolTip(Lbl, TipText)
+            Tips.SetToolTip(C, TipText)
+            ParamTable.RowStyles.Add(New RowStyle(SizeType.Absolute, 30))
+            ParamTable.Controls.Add(Lbl, 0, r)
+            ParamTable.Controls.Add(C, 1, r)
+            ParamControls(p.Key) = C
+        Next
+        ParamTable.RowStyles.Add(New RowStyle(SizeType.Percent, 100))
+        If d.Params.Count = 0 Then ParamTable.Controls.Add(New Label With {.Text = "(no parameters)", .AutoSize = True}, 0, 0)
+        ParamTable.ResumeLayout()
+        PanelMethod = m
+        MethodInfo.Text = d.Name & Environment.NewLine & d.Description & Environment.NewLine & "Reference: " & d.Reference & Environment.NewLine &
+                          "Acceptance: " & If(d.UsesMemoryUpdate, "'Memory update' setting", "own rule of the method (Memory update not used)") & Environment.NewLine &
+                          "Levy flight: " & If(d.LevyNote, "not used")
+        ApplyMethodUi()
+    End Sub
+
+    'Memory update / Levy flight only where the method uses them
+    Private Sub ApplyMethodUi()
+        Dim d As MethodDef_ = MethodCatalog.Find(SelectedMethod())
+        If IsRunning Then Return
+        MemoryUpdate.Enabled = d.UsesMemoryUpdate
+        Levy_Flight.Enabled = d.LevyNote IsNot Nothing
+        Tips.SetToolTip(Levy_Flight, If(d.LevyNote, "not used by this method"))
+        Tips.SetToolTip(MemoryUpdate, If(d.UsesMemoryUpdate, "replacement of the memory by a new design", "not used: the method has its own acceptance rule"))
+    End Sub
+
+    'values of the parameter panel (Nothing: valid)
+    Private Function CheckParams() As String
+        Dim d As MethodDef_ = MethodCatalog.Find(SelectedMethod())
+        For Each p In d.Params
+            Dim c As Windows.Forms.Control = Nothing
+            If Not ParamControls.TryGetValue(p.Key, c) OrElse TypeOf c Is ComboBox Then Continue For
+            Dim v As Double
+            If Not TryNum(c.Text, v) Then Return d.Name & ": '" & p.Label & "' must be a number"
+            If v < p.Min OrElse v > p.Max Then Return d.Name & ": '" & p.Label & "' must be between " & Num(p.Min) & " and " & Num(p.Max)
+            If p.IsInteger AndAlso v <> Math.Floor(v) Then Return d.Name & ": '" & p.Label & "' must be an integer"
+        Next
+        If d.Method = OptimizationStructure_.OptMethod_.TreeSeed Then
+            Dim a, b As Double
+            If TryNum(ParamControls("SeedsMin").Text, a) AndAlso TryNum(ParamControls("SeedsMax").Text, b) AndAlso a > b Then Return d.Name & ": seeds per tree, min must not exceed max"
+        End If
+        Return Nothing
+    End Function
+
     Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = MiscellaneousStructures.DriftComboMode_.LateralCasesOnly
         If CompositeCodeBox.SelectedIndex < 0 Then CompositeCodeBox.SelectedIndex = CompositeCode_.AISC360_22
         If RepairModeBox.SelectedIndex < 0 Then RepairModeBox.SelectedIndex = MiscellaneousStructures.RepairMode_.Combined
+        'HS defaults of the old form (PAR 0.6, HMCR 0.9, Dynamic / Adaptive) come from the catalog
+        UiOpt.Params = New List(Of MethodParam_)
+        For Each d In MethodCatalog.Methods
+            For Each p In d.Params
+                MethodCatalog.SetParam(UiOpt, d.Method, p.Key, p.DefaultValue)
+            Next
+        Next
+        If MemoryUpdate.SelectedIndex < 0 Then MemoryUpdate.SelectedIndex = OptimizationStructure_.MemoryUpdateType_.GreedyWorst
+        InitMethodUi()
         'unit costs: defaults of EncasedSections.xml (placeholders), edited by the user
         Dim Defaults As EncasedSettings_ = EncasedSettings_.LoadOrDefault()
         CostSteelBox.Text = Num(Defaults.SteelUnitCost)
@@ -164,6 +286,7 @@ Public Class MainForm
         Worker = Nothing
         UiTimer.Stop()
         SetInputsEnabled(True)
+        ApplyMethodUi()
         start.Text = If(StartText, "Start")
         PhaseText = If(RunFailed, "Failed (see ErrorLog.txt)", If(StopRequested, "Stopped", "Finished")) & " " & Date.Now.ToString("HH:mm:ss")
         PhaseClock = Nothing
@@ -387,20 +510,10 @@ Public Class MainForm
             MsgBox("Max. analyses must be a positive integer")
             Durdur = True
         End If
-        If Opt_method.SelectedIndex = 0 Then 'Harmony Search
-            If Not IsValidNumber(PAR_Val.Text) Then
-                MsgBox("Harmony Search Info the PAR is not defined correctly")
-                Durdur = True
-            End If
-            If Not IsValidNumber(HMCR_val.Text) Then
-                MsgBox("Harmony Search Info the HMCR is is not defined correctly")
-                Durdur = True
-            End If
-        ElseIf Opt_method.SelectedIndex = 1 Then 'Biogeoraphy-Based
-            If Not IsValidNumber(Mutation_Rate.Text) Then
-                MsgBox("Biogeography-based Info the Mutation rate is is not defined correctly")
-                Durdur = True
-            End If
+        Dim ParamProblem As String = CheckParams()
+        If ParamProblem IsNot Nothing Then
+            MsgBox(ParamProblem)
+            Durdur = True
         End If
         Return Durdur
     End Function
@@ -437,11 +550,11 @@ Public Class MainForm
         FormInfo.OptInfo.LevyFlight = Levy_Flight.Checked
         FormInfo.OptInfo.TestWithMath = TestwithMath.Checked
         FormInfo.OptInfo.ClearDuplicates = Clear_Duplicates.Checked
-        FormInfo.OptInfo.HarmonySearch.PARChangeType = PAR_Type.SelectedIndex
-        FormInfo.OptInfo.HarmonySearch.HMCRChangeType = HMCR_Type.SelectedIndex
-        FormInfo.OptInfo.HarmonySearch.PAR = ToDbl(PAR_Val.Text)
-        FormInfo.OptInfo.HarmonySearch.HMCR = ToDbl(HMCR_val.Text)
-        FormInfo.OptInfo.BioGeography.MutationRate = ToDbl(Mutation_Rate.Text)
+        'parameters of the selected method (the values of all methods are kept in UiOpt while the form is open)
+        SavePanel()
+        For Each p In MethodCatalog.Find(FormInfo.OptInfo.OptimizationMethod).Params
+            MethodCatalog.SetParam(FormInfo.OptInfo, FormInfo.OptInfo.OptimizationMethod, p.Key, MethodCatalog.GetParam(UiOpt, FormInfo.OptInfo.OptimizationMethod, p.Key))
+        Next
     End Sub
     Private Sub FormInfo_Write()
         ModelFileBox.Text = FormInfo.FileList.ETABSFile
@@ -479,11 +592,12 @@ Public Class MainForm
         Levy_Flight.Checked = FormInfo.OptInfo.LevyFlight
         TestwithMath.Checked = FormInfo.OptInfo.TestWithMath
         Clear_Duplicates.Checked = FormInfo.OptInfo.ClearDuplicates
-        PAR_Type.SelectedIndex = FormInfo.OptInfo.HarmonySearch.PARChangeType
-        HMCR_Type.SelectedIndex = FormInfo.OptInfo.HarmonySearch.HMCRChangeType
-        PAR_Val.Text = Num(FormInfo.OptInfo.HarmonySearch.PAR)
-        HMCR_val.Text = Num(FormInfo.OptInfo.HarmonySearch.HMCR)
-        Mutation_Rate.Text = Num(FormInfo.OptInfo.BioGeography.MutationRate)
+        'method parameters of the backup
+        For Each p In MethodCatalog.Find(FormInfo.OptInfo.OptimizationMethod).Params
+            MethodCatalog.SetParam(UiOpt, FormInfo.OptInfo.OptimizationMethod, p.Key, MethodCatalog.GetParam(FormInfo.OptInfo, FormInfo.OptInfo.OptimizationMethod, p.Key))
+        Next
+        PanelMethod = Nothing
+        BuildPanel()
     End Sub
     'Backup of the run whose output file is given on the form (<output>.backup.xml). Before the run continues the
     'user sees what is restored and is warned if the backup belongs to another model or the model was changed.
@@ -661,6 +775,7 @@ Public Class MainForm
         OptClass.ILoop = 0
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.HarmornySearch Then OptClass.Init_HarmonySearch()
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO Then OptClass.Init_BioGeographyBased()
+        OptClass.InitMethodState()
     End Sub
     'Restored run: a backup written while the initial memory was generated (stop, power failure) has fewer members and
     'no algorithm vectors yet: the memory is completed and the vectors are created
@@ -688,6 +803,7 @@ Public Class MainForm
             If .OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO AndAlso
                (.BioGeography.Mu Is Nothing OrElse .BioGeography.Mu.Length <> OptClass.Memory.Count) Then OptClass.Init_BioGeographyBased()
         End With
+        OptClass.InitMethodState(OnlyIfMissing:=True)
     End Sub
 
     'Model size on the Structural Properties tab

@@ -139,6 +139,11 @@ Kurallar:
 - Regresyon testi: aynı kesit ve kuvvet setinde 360-16 modu, git'teki önceki `CompositeColumn.vb` ile birebir aynı çıktıyı vermelidir. Fark yalnızca bilinçli düzeltmelerden kaynaklanabilir.
 
 ## 6. Algoritmalar
+- **Yöntem kataloğu** (`OptimizationMethods.vb`, `MethodCatalog`): her yöntemin adı, açıklaması, kaynağı, parametreleri (`ParamDef_`: anahtar, etiket, varsayılan, sınırlar, tam sayı / seçenek), `UsesMemoryUpdate` ve `LevyNote` bilgisi buradadır. Form parametre kutusunu buradan kurar. Yeni bir yöntem için: `OptMethod_` sonuna değer, katalogda tanım, `Main_<yöntem>` ve `OptimizationClass.Main` içinde çağrı eklenir.
+- Parametre değerleri: HS ve BBO kendi yapılarındadır (eski yedeklerle uyum), diğerleri `OptInfo.Params` (`MethodParam_`) içindedir. Okuma ve yazma `MethodCatalog.GetParam` / `SetParam` ile yapılır; eksik değerde katalog varsayılanı kullanılır.
+- Yöntem durumu `OptInfo.State` (`AlgorithmState_`) alanındadır ve yedeğe girer: ABC `Trials`, ACO `Pheromone`, GWO `Leaders`. `InitMethodState` başlangıç belleğinden sonra, `InitMethodState(True)` yedekten devamda eksik veya boyutu yanlış durumu kurar. `ClearDuplicates` belleği değiştirirse üye başına durum (ABC) sıfırlanır.
+- Yeni yöntemler (ABC, ACO, BSO, Crow, Firefly, GOA, TLBO, TSA, GWO, HBA, AO) sürekli konumu `ToMember` ile yuvarlayıp sınırlara kırpar. Değerlendirme `EvaluateOnly` (onarım, önbellek, global en iyi) ve `EvalAt(üye, hedef, açgözlü)` ile yapılır; formdaki Memory update bunlarda kullanılmaz.
+- Kaynak VB programlarındaki (SteelStruc klasörü) algoritmalar literatüre göre yeniden yazıldı; oradaki hatalar (DEGISIKLIKLER Aşama 15) taşınmadı.
 - `GlobalBest` yalnızca **cezasız** çözümlerle güncellenir. O zamana kadar değişkenleri 0'dır ve `PenalizedCost = ∞` olur.
 - En iyi çözüme yönelen adımlar (Dandelion iniş aşaması, Levy uçuşu, Whale lideri) `OptimizationClass.Leader()` kullanır. Leader, uygun çözüm varsa `GlobalBest`'i, yoksa belleğin en iyisini döndürür. Doğrudan `GlobalBest.DesignVariables` kullanılmaz.
 

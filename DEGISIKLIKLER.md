@@ -5,6 +5,82 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 15: Yeni optimizasyon yöntemleri ve Optimization sekmesi
+
+### Mevcut yöntemler
+Harmony Search, Biogeography-Based, Whale ve Dandelion vardı. Whale, Biogeography ve Dandelion dışında başka yöntem yoktu.
+
+### Eklenen 11 yöntem
+- Artificial Bee Colony, Ant Colony, Brain Storm, Crow Search, Firefly, Grasshopper, Teaching-Learning (TLBO-HS seçeneğiyle), Tree-Seed, Grey Wolf, Honey Badger, Aquila.
+- Algoritmalar `OptimizationMethods.vb` dosyasında; bilgiler `MethodCatalog` içinde (açıklama, kaynak, parametreler, varsayılan değerler, sınırlar).
+
+### Kaynak VB dosyalarının incelemesi (SteelStruc)
+Algoritmalar literatüre göre yeniden yazıldı. Parametre adları ve varsayılan değerler kaynak dosyalardan alındı. Kaynaklardaki aşağıdaki hatalar taşınmadı:
+- **ABC:**
+  - İyileşen çözüm `colony` dizisine yazılmıyor; yalnızca uygunluk değeri değişiyor. Karşılaştırma rastgele bir k ile yapılıyor.
+  - Sınırlar 22 gruplu tek bir probleme göre sabit.
+  - Levy seçeneği **var**, ancak yalnızca kâşif arı aşamasında. Burada da kâşif arıda Levy seçeneği olarak uygulandı.
+  - Levy adımı normal dağılım yerine düzgün dağılım kullanıyor ve tamsayı kayması hep negatif.
+- **ACO:** tamamlanmamış: ana döngü çözüm üretmiyor ve sonsuza dek dönüyor. Ayrık kesit seçimi için feromon ve heuristik tabanlı standart ACO yazıldı (Camp & Bichon 2004).
+- **BSO:**
+  - Kümelerin en iyisi hiç kaydedilmiyor (`fit_values = 0`).
+  - Çözüm yanlış satıra yazılıyor.
+  - "k-means" merkezleri hiç güncellemiyor.
+  - Levy seçeneği indeks taşmasıyla hata veriyor.
+- **Crow:** uçuş uzunluğu tamsayı olarak tanımlı; Levy kutusu kullanılmıyor.
+- **Firefly:**
+  - Kabul kuralında konum ile uygunluk değeri birbirinden kopuyor.
+  - Sınırlar ve ilk 5 ateş böceği 22 gruplu tek bir probleme sabit.
+  - Kopya kontrolü yanlış indeks kullanıyor.
+- **Grasshopper:**
+  - Verilen dosya (`GOA\GOA_API`) aslında BBO içeriyor.
+  - Gerçek GOA (`GOA_18.05`) kesit numaralarını **grup sayısıyla** sınırlıyor; mesafe dönüşümü `2 + rem(d, 2)` yerine `rem(d, 2)`.
+- **TLBOHS:**
+  - HS aşaması her zaman en kötü üyeyi kopyalıyor (`<` yerine `>` olmalı).
+  - Öğretmen ve öğrenci formülleri standart dışı.
+  - Döngü içinde yeniden sıralama var.
+- **TSA:**
+  - En iyi ağaç `best_param(n_d)` ile okunuyor (`best_param(k)` olmalı).
+  - Global en iyi her ağaçta bellek en iyisiyle eziliyor.
+  - "Best greedy" seçeneği kullanılmayan 0. satıra yazıyor.
+- **Wolf:**
+  - Standart Gri Kurt (GWO) değil, Wolf Colony türü bir algoritma: alfa/beta/delta yok.
+  - Yeni konum uygunluk karşılaştırması yapılmadan kabul ediliyor.
+  - GWO kullanıcının verdiği tanıma göre (Mirjalili 2014) yazıldı.
+- **HBA, AO:** kullanıcının verdiği sözde koda göre yazıldı.
+  - HBA'da koku şiddeti `I` 1 ile sınırlandı: av ile mesafe 0'a giderken ifade sınırsız büyüyor.
+  - AO'da t ve T çevrim sayısı olarak alınıyor.
+
+### Ortak kurallar
+- Her yöntem mevcut değerlendirme altyapısını kullanıyor: onarım, önbellek, global en iyi, yedek, durdurma ve ETABS yeniden başlatma.
+- Kabul kuralları:
+  - Açgözlü: ABC, BSO, Crow, Firefly, TLBO, TSA, HBA, AO.
+  - Arşivin en kötüsüyle karşılaştırma: ACO.
+  - Doğrudan değiştirme: GOA ve GWO. GWO'da alfa, beta ve delta (bulunan en iyi üç tasarım) ayrıca saklanıyor.
+- Formdaki *Memory Update* yalnızca HS, BBO, Whale ve Dandelion'da; *Levy Flight* yalnızca BBO, ABC, BSO ve Crow'da etkili. Diğer yöntemlerde bu seçenekler soluk görünüyor.
+- Yöntem parametreleri `OptInfo.Params`, yöntem durumu `OptInfo.State` alanında; ikisi de yedeğe giriyor (ABC deneme sayaçları, ACO feromonu, GWO liderleri).
+- Yöntem enum'una yalnızca sona değer eklendi; eski yedekler okunuyor.
+
+### Optimization sekmesi
+- **Solda:** *General* (yöntem en üstte, popülasyon boyutu, analiz sayısı, Memory Update, seçenekler) ve *Evaluation*.
+- **Sağda:** *Method parameters*. Seçili yöntemin adı, açıklaması, kaynağı, kabul kuralı ve Levy etkisi ile yalnızca o yöntemin parametreleri görünüyor; parametrelerde ipucu ve sınır bilgisi var.
+- Eski HS ve BBO kutuları kaldırıldı; parametreleri yeni kutuda.
+- Değerler denetleniyor (sayı, sınırlar, tamsayı, TSA'da en az ≤ en çok). Yöntem değiştirilince girilen değerler kaybolmuyor.
+- `Eval` içindeki `Application.DoEvents()` kaldırıldı; Aşama 13'ten beri koşu arka plan iş parçacığında çalışıyor.
+
+### Testler
+- **Matematik testi** (ETABS'siz, dişli treni problemi, 4 değişken, 3000 analiz, 3 tohum, Levy açık ve kapalı):
+  - 15 yöntemin hepsi hatasız çalıştı; hiçbir değer sınır dışına çıkmadı.
+  - Hepsi bilinen optimuma (2,7e-12) yaklaştı: en iyi sonuçlar 1e-12 ile 1e-7 arası.
+  - ABC, ACO ve GWO durumu yedek XML'inden doğru geri okundu.
+- **Formdan ETABS testi** (525M kopyası, 20 analiz):
+  - ABC 7875 ve GWO 7387 ile final doğrulamasından geçti.
+  - Bu aşamadan önce yazılmış bir HS yedeğinden yeni arayüzle devam edildi.
+- **Test ortamı notu:** test klasörünün yolu 260 karakteri aşınca `DocumentFormat.OpenXml.dll` yüklenemiyor ve Excel yazılamıyor. Program hatası değil; kısa yolda Excel çıktısı doğrulandı.
+- Test22 tüm testleri geçti; MSBuild uyarısız; form ekranları kontrol edildi.
+
+---
+
 ## 2026-10-02 — Aşama 14: Yedek denetimleri, maliyet dökümü, Excel çıktısı
 
 ### Yedek denetimleri (bozuk ya da yanlış dosya)

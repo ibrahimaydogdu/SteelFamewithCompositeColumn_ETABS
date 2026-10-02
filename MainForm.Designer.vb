@@ -66,6 +66,9 @@ Partial Class MainForm
         Me.Label28 = New System.Windows.Forms.Label()
         Me.RepairModeBox = New System.Windows.Forms.ComboBox()
         Me.ResultCache = New System.Windows.Forms.CheckBox()
+        Me.MethodBox = New System.Windows.Forms.GroupBox()
+        Me.MethodInfo = New System.Windows.Forms.Label()
+        Me.ParamTable = New System.Windows.Forms.TableLayoutPanel()
         Me.Label37 = New System.Windows.Forms.Label()
         Me.RestartBox = New System.Windows.Forms.TextBox()
         Me.Label29 = New System.Windows.Forms.Label()
@@ -102,18 +105,6 @@ Partial Class MainForm
         Me.nofsection1 = New System.Windows.Forms.TextBox()
         Me.Label7 = New System.Windows.Forms.Label()
         Me.TabPage3 = New System.Windows.Forms.TabPage()
-        Me.GroupBox7 = New System.Windows.Forms.GroupBox()
-        Me.Mutation_Rate = New System.Windows.Forms.TextBox()
-        Me.Label27 = New System.Windows.Forms.Label()
-        Me.GroupBox2 = New System.Windows.Forms.GroupBox()
-        Me.Label22 = New System.Windows.Forms.Label()
-        Me.HMCR_Type = New System.Windows.Forms.ComboBox()
-        Me.Label8 = New System.Windows.Forms.Label()
-        Me.HMCR_val = New System.Windows.Forms.TextBox()
-        Me.PAR_Type = New System.Windows.Forms.ComboBox()
-        Me.Label14 = New System.Windows.Forms.Label()
-        Me.PAR_Val = New System.Windows.Forms.TextBox()
-        Me.Label4 = New System.Windows.Forms.Label()
         Me.GroupBox4 = New System.Windows.Forms.GroupBox()
         Me.Clear_Duplicates = New System.Windows.Forms.CheckBox()
         Me.Levy_Flight = New System.Windows.Forms.CheckBox()
@@ -138,8 +129,6 @@ Partial Class MainForm
         Me.GroupBox5.SuspendLayout()
         Me.GroupBox8.SuspendLayout()
         Me.TabPage3.SuspendLayout()
-        Me.GroupBox7.SuspendLayout()
-        Me.GroupBox2.SuspendLayout()
         Me.GroupBox4.SuspendLayout()
         Me.SuspendLayout()
         '
@@ -751,10 +740,9 @@ Partial Class MainForm
         '
         'TabPage3
         '
-        Me.TabPage3.Controls.Add(Me.GroupBox7)
-        Me.TabPage3.Controls.Add(Me.GroupBox2)
         Me.TabPage3.Controls.Add(Me.GroupBox4)
         Me.TabPage3.Controls.Add(Me.GroupBox9)
+        Me.TabPage3.Controls.Add(Me.MethodBox)
         Me.TabPage3.Location = New System.Drawing.Point(4, 25)
         Me.TabPage3.Margin = New System.Windows.Forms.Padding(4)
         Me.TabPage3.Name = "TabPage3"
@@ -764,139 +752,29 @@ Partial Class MainForm
         Me.TabPage3.Text = "Optimization parameters"
         Me.TabPage3.UseVisualStyleBackColor = True
         '
-        'GroupBox7
         '
-        Me.GroupBox7.Controls.Add(Me.Mutation_Rate)
-        Me.GroupBox7.Controls.Add(Me.Label27)
-        Me.GroupBox7.Location = New System.Drawing.Point(8, 340)
-        Me.GroupBox7.Margin = New System.Windows.Forms.Padding(4)
-        Me.GroupBox7.Name = "GroupBox7"
-        Me.GroupBox7.Padding = New System.Windows.Forms.Padding(4)
-        Me.GroupBox7.Size = New System.Drawing.Size(283, 59)
-        Me.GroupBox7.TabIndex = 8
-        Me.GroupBox7.TabStop = False
-        Me.GroupBox7.Text = "Bio Geography-based O. Parameters"
         '
-        'Mutation_Rate
         '
-        Me.Mutation_Rate.Location = New System.Drawing.Point(155, 20)
-        Me.Mutation_Rate.Margin = New System.Windows.Forms.Padding(4)
-        Me.Mutation_Rate.Name = "Mutation_Rate"
-        Me.Mutation_Rate.Size = New System.Drawing.Size(65, 22)
-        Me.Mutation_Rate.TabIndex = 23
-        Me.Mutation_Rate.Text = "0.1"
-        Me.Mutation_Rate.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
         '
-        'Label27
         '
-        Me.Label27.AutoSize = True
-        Me.Label27.Location = New System.Drawing.Point(7, 28)
-        Me.Label27.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label27.Name = "Label27"
-        Me.Label27.Size = New System.Drawing.Size(70, 16)
-        Me.Label27.TabIndex = 22
-        Me.Label27.Text = "MutationR."
         '
-        'GroupBox2
         '
-        Me.GroupBox2.Controls.Add(Me.Label22)
-        Me.GroupBox2.Controls.Add(Me.HMCR_Type)
-        Me.GroupBox2.Controls.Add(Me.Label8)
-        Me.GroupBox2.Controls.Add(Me.HMCR_val)
-        Me.GroupBox2.Controls.Add(Me.PAR_Type)
-        Me.GroupBox2.Controls.Add(Me.Label14)
-        Me.GroupBox2.Controls.Add(Me.PAR_Val)
-        Me.GroupBox2.Controls.Add(Me.Label4)
-        Me.GroupBox2.Location = New System.Drawing.Point(8, 187)
-        Me.GroupBox2.Margin = New System.Windows.Forms.Padding(4)
-        Me.GroupBox2.Name = "GroupBox2"
-        Me.GroupBox2.Padding = New System.Windows.Forms.Padding(4)
-        Me.GroupBox2.Size = New System.Drawing.Size(283, 145)
-        Me.GroupBox2.TabIndex = 7
-        Me.GroupBox2.TabStop = False
-        Me.GroupBox2.Text = "HS Parameters"
         '
-        'Label22
         '
-        Me.Label22.AutoSize = True
-        Me.Label22.Location = New System.Drawing.Point(8, 113)
-        Me.Label22.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label22.Name = "Label22"
-        Me.Label22.Size = New System.Drawing.Size(82, 16)
-        Me.Label22.TabIndex = 29
-        Me.Label22.Text = "HMCR Type"
         '
-        'HMCR_Type
         '
-        Me.HMCR_Type.FormattingEnabled = True
-        Me.HMCR_Type.Items.AddRange(New Object() {"Static", "Dynamic", "Adaptive"})
-        Me.HMCR_Type.Location = New System.Drawing.Point(155, 110)
-        Me.HMCR_Type.Margin = New System.Windows.Forms.Padding(4)
-        Me.HMCR_Type.Name = "HMCR_Type"
-        Me.HMCR_Type.Size = New System.Drawing.Size(108, 24)
-        Me.HMCR_Type.TabIndex = 28
-        Me.HMCR_Type.Text = "Adaptive"
         '
-        'Label8
         '
-        Me.Label8.AutoSize = True
-        Me.Label8.Location = New System.Drawing.Point(8, 80)
-        Me.Label8.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label8.Name = "Label8"
-        Me.Label8.Size = New System.Drawing.Size(70, 16)
-        Me.Label8.TabIndex = 7
-        Me.Label8.Text = "PAR Type"
         '
-        'HMCR_val
         '
-        Me.HMCR_val.Location = New System.Drawing.Point(155, 44)
-        Me.HMCR_val.Margin = New System.Windows.Forms.Padding(4)
-        Me.HMCR_val.Name = "HMCR_val"
-        Me.HMCR_val.Size = New System.Drawing.Size(65, 22)
-        Me.HMCR_val.TabIndex = 27
-        Me.HMCR_val.Text = "0.9"
-        Me.HMCR_val.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
         '
-        'PAR_Type
         '
-        Me.PAR_Type.FormattingEnabled = True
-        Me.PAR_Type.Items.AddRange(New Object() {"Static", "Dynamic", "Adaptive"})
-        Me.PAR_Type.Location = New System.Drawing.Point(155, 76)
-        Me.PAR_Type.Margin = New System.Windows.Forms.Padding(4)
-        Me.PAR_Type.Name = "PAR_Type"
-        Me.PAR_Type.Size = New System.Drawing.Size(108, 24)
-        Me.PAR_Type.TabIndex = 6
-        Me.PAR_Type.Text = "Dynamic"
         '
-        'Label14
         '
-        Me.Label14.AutoSize = True
-        Me.Label14.Location = New System.Drawing.Point(7, 53)
-        Me.Label14.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label14.Name = "Label14"
-        Me.Label14.Size = New System.Drawing.Size(47, 16)
-        Me.Label14.TabIndex = 26
-        Me.Label14.Text = "HMCR"
         '
-        'PAR_Val
         '
-        Me.PAR_Val.Location = New System.Drawing.Point(155, 20)
-        Me.PAR_Val.Margin = New System.Windows.Forms.Padding(4)
-        Me.PAR_Val.Name = "PAR_Val"
-        Me.PAR_Val.Size = New System.Drawing.Size(65, 22)
-        Me.PAR_Val.TabIndex = 23
-        Me.PAR_Val.Text = "0.6"
-        Me.PAR_Val.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
         '
-        'Label4
         '
-        Me.Label4.AutoSize = True
-        Me.Label4.Location = New System.Drawing.Point(7, 28)
-        Me.Label4.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
-        Me.Label4.Name = "Label4"
-        Me.Label4.Size = New System.Drawing.Size(35, 16)
-        Me.Label4.TabIndex = 22
-        Me.Label4.Text = "PAR"
         '
         'GroupBox4
         '
@@ -915,17 +793,17 @@ Partial Class MainForm
         Me.GroupBox4.Margin = New System.Windows.Forms.Padding(4)
         Me.GroupBox4.Name = "GroupBox4"
         Me.GroupBox4.Padding = New System.Windows.Forms.Padding(4)
-        Me.GroupBox4.Size = New System.Drawing.Size(367, 176)
+        Me.GroupBox4.Size = New System.Drawing.Size(367, 172)
         Me.GroupBox4.TabIndex = 6
         Me.GroupBox4.TabStop = False
-        Me.GroupBox4.Text = "General Parameters"
+        Me.GroupBox4.Text = "General"
         '
         'Clear_Duplicates
         '
         Me.Clear_Duplicates.AutoSize = True
         Me.Clear_Duplicates.Checked = True
         Me.Clear_Duplicates.CheckState = System.Windows.Forms.CheckState.Checked
-        Me.Clear_Duplicates.Location = New System.Drawing.Point(12, 135)
+        Me.Clear_Duplicates.Location = New System.Drawing.Point(12, 140)
         Me.Clear_Duplicates.Margin = New System.Windows.Forms.Padding(4)
         Me.Clear_Duplicates.Name = "Clear_Duplicates"
         Me.Clear_Duplicates.Size = New System.Drawing.Size(128, 20)
@@ -938,7 +816,7 @@ Partial Class MainForm
         Me.Levy_Flight.AutoSize = True
         Me.Levy_Flight.Checked = True
         Me.Levy_Flight.CheckState = System.Windows.Forms.CheckState.Checked
-        Me.Levy_Flight.Location = New System.Drawing.Point(155, 135)
+        Me.Levy_Flight.Location = New System.Drawing.Point(155, 140)
         Me.Levy_Flight.Margin = New System.Windows.Forms.Padding(4)
         Me.Levy_Flight.Name = "Levy_Flight"
         Me.Levy_Flight.Size = New System.Drawing.Size(93, 20)
@@ -949,7 +827,7 @@ Partial Class MainForm
         'TestwithMath
         '
         Me.TestwithMath.AutoSize = True
-        Me.TestwithMath.Location = New System.Drawing.Point(259, 135)
+        Me.TestwithMath.Location = New System.Drawing.Point(259, 140)
         Me.TestwithMath.Margin = New System.Windows.Forms.Padding(4)
         Me.TestwithMath.Name = "TestwithMath"
         Me.TestwithMath.Size = New System.Drawing.Size(88, 20)
@@ -960,18 +838,19 @@ Partial Class MainForm
         'Opt_method
         '
         Me.Opt_method.FormattingEnabled = True
-        Me.Opt_method.Items.AddRange(New Object() {"Harmony Search", "Bio-Geography Based", "Whale Optimization", "DandelionOptimization"})
-        Me.Opt_method.Location = New System.Drawing.Point(155, 102)
+        Me.Opt_method.Items.AddRange(New Object() {"Harmony Search (HS)", "Biogeography-Based (BBO)", "Whale Optimization (WOA)", "Dandelion Optimizer (DO)", "Artificial Bee Colony (ABC)", "Ant Colony (ACO)", "Brain Storm (BSO)", "Crow Search (CSA)", "Firefly (FA)", "Grasshopper (GOA)", "Teaching-Learning (TLBO)", "Tree-Seed (TSA)", "Grey Wolf (GWO)", "Honey Badger (HBA)", "Aquila Optimizer (AO)"})
+        Me.Opt_method.Location = New System.Drawing.Point(155, 18)
         Me.Opt_method.Margin = New System.Windows.Forms.Padding(4)
         Me.Opt_method.Name = "Opt_method"
         Me.Opt_method.Size = New System.Drawing.Size(196, 24)
         Me.Opt_method.TabIndex = 7
-        Me.Opt_method.Text = "Harmony Search"
+        Me.Opt_method.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList
+        Me.Opt_method.DropDownWidth = 260
         '
         'Label23
         '
         Me.Label23.AutoSize = True
-        Me.Label23.Location = New System.Drawing.Point(8, 102)
+        Me.Label23.Location = New System.Drawing.Point(8, 22)
         Me.Label23.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label23.Name = "Label23"
         Me.Label23.Size = New System.Drawing.Size(104, 16)
@@ -981,7 +860,7 @@ Partial Class MainForm
         'Label19
         '
         Me.Label19.AutoSize = True
-        Me.Label19.Location = New System.Drawing.Point(8, 73)
+        Me.Label19.Location = New System.Drawing.Point(8, 108)
         Me.Label19.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label19.Name = "Label19"
         Me.Label19.Size = New System.Drawing.Size(104, 16)
@@ -992,7 +871,7 @@ Partial Class MainForm
         '
         Me.MemoryUpdate.FormattingEnabled = True
         Me.MemoryUpdate.Items.AddRange(New Object() {"Directly with old member", "Directly with random member", "Directly with worst member ", "Greedy with old member", "Greedy with random member", "Greedy with worst member"})
-        Me.MemoryUpdate.Location = New System.Drawing.Point(155, 69)
+        Me.MemoryUpdate.Location = New System.Drawing.Point(155, 104)
         Me.MemoryUpdate.Margin = New System.Windows.Forms.Padding(4)
         Me.MemoryUpdate.Name = "MemoryUpdate"
         Me.MemoryUpdate.Size = New System.Drawing.Size(196, 24)
@@ -1001,7 +880,7 @@ Partial Class MainForm
         '
         'maxiter
         '
-        Me.maxiter.Location = New System.Drawing.Point(155, 41)
+        Me.maxiter.Location = New System.Drawing.Point(155, 76)
         Me.maxiter.Margin = New System.Windows.Forms.Padding(4)
         Me.maxiter.Name = "maxiter"
         Me.maxiter.Size = New System.Drawing.Size(65, 22)
@@ -1012,7 +891,7 @@ Partial Class MainForm
         'Label2
         '
         Me.Label2.AutoSize = True
-        Me.Label2.Location = New System.Drawing.Point(7, 49)
+        Me.Label2.Location = New System.Drawing.Point(7, 80)
         Me.Label2.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label2.Name = "Label2"
         Me.Label2.Size = New System.Drawing.Size(85, 16)
@@ -1021,7 +900,7 @@ Partial Class MainForm
         '
         'MemSize
         '
-        Me.MemSize.Location = New System.Drawing.Point(155, 16)
+        Me.MemSize.Location = New System.Drawing.Point(155, 48)
         Me.MemSize.Margin = New System.Windows.Forms.Padding(4)
         Me.MemSize.Name = "MemSize"
         Me.MemSize.Size = New System.Drawing.Size(65, 22)
@@ -1032,12 +911,12 @@ Partial Class MainForm
         'Label1
         '
         Me.Label1.AutoSize = True
-        Me.Label1.Location = New System.Drawing.Point(7, 25)
+        Me.Label1.Location = New System.Drawing.Point(7, 52)
         Me.Label1.Margin = New System.Windows.Forms.Padding(4, 0, 4, 0)
         Me.Label1.Name = "Label1"
         Me.Label1.Size = New System.Drawing.Size(129, 16)
         Me.Label1.TabIndex = 0
-        Me.Label1.Text = "Memory size"
+        Me.Label1.Text = "Memory / population size"
         '
         'NotifyIcon1
         '
@@ -1136,6 +1015,36 @@ Partial Class MainForm
         Me.PDeltaBox.Text = "P-Delta analysis (nonlinear cases + preset P-Delta)"
         Me.PDeltaBox.UseVisualStyleBackColor = True
         '
+        'MethodBox
+        '
+        Me.MethodBox.Controls.Add(Me.ParamTable)
+        Me.MethodBox.Controls.Add(Me.MethodInfo)
+        Me.MethodBox.Location = New System.Drawing.Point(383, 4)
+        Me.MethodBox.Name = "MethodBox"
+        Me.MethodBox.Size = New System.Drawing.Size(300, 540)
+        Me.MethodBox.TabIndex = 11
+        Me.MethodBox.TabStop = False
+        Me.MethodBox.Text = "Method parameters"
+        '
+        'MethodInfo
+        '
+        Me.MethodInfo.Location = New System.Drawing.Point(8, 20)
+        Me.MethodInfo.Name = "MethodInfo"
+        Me.MethodInfo.Size = New System.Drawing.Size(284, 200)
+        Me.MethodInfo.TabIndex = 0
+        Me.MethodInfo.Text = ""
+        '
+        'ParamTable
+        '
+        Me.ParamTable.AutoScroll = True
+        Me.ParamTable.ColumnCount = 2
+        Me.ParamTable.ColumnStyles.Add(New System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 62.0!))
+        Me.ParamTable.ColumnStyles.Add(New System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 38.0!))
+        Me.ParamTable.Location = New System.Drawing.Point(8, 224)
+        Me.ParamTable.Name = "ParamTable"
+        Me.ParamTable.Size = New System.Drawing.Size(284, 308)
+        Me.ParamTable.TabIndex = 1
+        '
         'GroupBox9
         '
         Me.GroupBox9.Controls.Add(Me.Label28)
@@ -1143,9 +1052,9 @@ Partial Class MainForm
         Me.GroupBox9.Controls.Add(Me.ResultCache)
         Me.GroupBox9.Controls.Add(Me.Label37)
         Me.GroupBox9.Controls.Add(Me.RestartBox)
-        Me.GroupBox9.Location = New System.Drawing.Point(383, 4)
+        Me.GroupBox9.Location = New System.Drawing.Point(8, 184)
         Me.GroupBox9.Name = "GroupBox9"
-        Me.GroupBox9.Size = New System.Drawing.Size(290, 130)
+        Me.GroupBox9.Size = New System.Drawing.Size(367, 130)
         Me.GroupBox9.TabIndex = 10
         Me.GroupBox9.TabStop = False
         Me.GroupBox9.Text = "Evaluation"
@@ -1317,10 +1226,6 @@ Partial Class MainForm
         Me.GroupBox8.ResumeLayout(False)
         Me.GroupBox8.PerformLayout()
         Me.TabPage3.ResumeLayout(False)
-        Me.GroupBox7.ResumeLayout(False)
-        Me.GroupBox7.PerformLayout()
-        Me.GroupBox2.ResumeLayout(False)
-        Me.GroupBox2.PerformLayout()
         Me.GroupBox4.ResumeLayout(False)
         Me.GroupBox4.PerformLayout()
         Me.ResumeLayout(False)
@@ -1364,11 +1269,6 @@ Partial Class MainForm
     Friend WithEvents nofsection1 As TextBox
     Friend WithEvents Label7 As Label
     Friend WithEvents TabPage3 As TabPage
-    Friend WithEvents GroupBox2 As GroupBox
-    Friend WithEvents HMCR_val As TextBox
-    Friend WithEvents Label14 As Label
-    Friend WithEvents PAR_Val As TextBox
-    Friend WithEvents Label4 As Label
     Friend WithEvents GroupBox4 As GroupBox
     Friend WithEvents maxiter As TextBox
     Friend WithEvents Label2 As Label
@@ -1377,17 +1277,10 @@ Partial Class MainForm
     Friend WithEvents NotifyIcon1 As NotifyIcon
     Friend WithEvents Label19 As Label
     Friend WithEvents MemoryUpdate As ComboBox
-    Friend WithEvents Label8 As Label
-    Friend WithEvents PAR_Type As ComboBox
     Friend WithEvents Label20 As Label
     Friend WithEvents Dcode_Steel As ComboBox
-    Friend WithEvents Label22 As Label
-    Friend WithEvents HMCR_Type As ComboBox
     Friend WithEvents Label23 As Label
     Friend WithEvents Opt_method As ComboBox
-    Friend WithEvents GroupBox7 As GroupBox
-    Friend WithEvents Mutation_Rate As TextBox
-    Friend WithEvents Label27 As Label
     Friend WithEvents TextBox1 As TextBox
     Friend WithEvents label38 As Label
     Friend WithEvents HideETABS As CheckBox
@@ -1412,6 +1305,9 @@ Partial Class MainForm
     Friend WithEvents Label28 As Label
     Friend WithEvents RepairModeBox As ComboBox
     Friend WithEvents ResultCache As CheckBox
+    Friend WithEvents MethodBox As GroupBox
+    Friend WithEvents MethodInfo As Label
+    Friend WithEvents ParamTable As TableLayoutPanel
     Friend WithEvents Label37 As Label
     Friend WithEvents RestartBox As TextBox
     Friend WithEvents StatusLabel As Label

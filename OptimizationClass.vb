@@ -1,7 +1,7 @@
 ﻿Imports System.IO
 Imports System.Xml.Serialization
 
-Public Class OptimizationClass
+Partial Public Class OptimizationClass
     Public Memory As List(Of OptimizationStructure_.Member_)
     Public Ub() As Integer
     Public Lb() As Integer
@@ -47,6 +47,19 @@ Public Class OptimizationClass
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO Then Main_BioGeographyBased(Imem, ret)
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.WhaleOpt Then Main_Whale(Imem, ret)
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.DandelionOpt Then Main_Dandelion(Imem, ret)
+        Select Case FormInfo.OptInfo.OptimizationMethod
+            Case OptimizationStructure_.OptMethod_.ArtificialBeeColony : Main_ArtificialBeeColony(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.AntColony : Main_AntColony(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.BrainStorm : Main_BrainStorm(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.CrowSearch : Main_CrowSearch(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.Firefly : Main_Firefly(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.Grasshopper : Main_Grasshopper(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.TeachingLearning : Main_TeachingLearning(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.TreeSeed : Main_TreeSeed(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.GreyWolf : Main_GreyWolf(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.HoneyBadger : Main_HoneyBadger(Imem, ret)
+            Case OptimizationStructure_.OptMethod_.Aquila : Main_Aquila(Imem, ret)
+        End Select
     End Sub
     Private Sub Main_HarmonySearch(ByRef Imem As Integer, ByRef ret As Integer)
         Dim PAR As Double
@@ -334,7 +347,9 @@ Public Class OptimizationClass
     End Sub
     Public Sub ClearDuplicates(ByRef ret As Integer)
         'Members are equal if their design variables are equal (Distinct() compared array references)
+        Dim Before As Integer = Memory.Count
         Memory = Memory.GroupBy(Function(c) String.Join(",", c.DesignVariables)).Select(Function(g) g.First()).ToList()
+        If Memory.Count <> Before Then MemberStateChanged()
         For i = Memory.Count To FormInfo.OptInfo.MemorySize - 1
             Dim Member As New OptimizationStructure_.Member_
             RandomGenerate(Member, ILoop, ret)
@@ -369,7 +384,6 @@ Public Class OptimizationClass
             ETABSModel.Evaluate(Member, iter, ret)
             If ret <> 0 Then : LogError("Problem occurred in :Evaluate") : Exit Sub : End If
         End If
-        Application.DoEvents()
         GlobalBestCheck(Member, ILoop)
         Dim CId = Imem
         Update = True

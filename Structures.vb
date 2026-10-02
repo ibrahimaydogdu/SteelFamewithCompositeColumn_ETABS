@@ -240,6 +240,8 @@ Public Class OptimizationStructure_
         Public OptimizationMethod As OptMethod_
         Public LevyFlight As Boolean
         Public TestWithMath As Boolean
+        Public Params As List(Of MethodParam_)      'parameters of the methods without own structure (MethodCatalog)
+        Public State As AlgorithmState_             'state of the methods (ABC trials, ACO pheromone, GWO leaders)
     End Structure
     Public Structure HarmonySearch_
         Dim PAR As Double
@@ -259,6 +261,17 @@ Public Class OptimizationStructure_
         BioGBasedO = 1
         WhaleOpt = 2
         DandelionOpt = 3
+        ArtificialBeeColony = 4
+        AntColony = 5
+        BrainStorm = 6
+        CrowSearch = 7
+        Firefly = 8
+        Grasshopper = 9
+        TeachingLearning = 10
+        TreeSeed = 11
+        GreyWolf = 12
+        HoneyBadger = 13
+        Aquila = 14
     End Enum
     Public Enum MemoryUpdateType_
         NoGreedyCurrent = 0
@@ -314,4 +327,18 @@ Public Class ModelIdentity_
     Public ModelHash As String              'SHA-256 of the model file
     Public GroupNames As List(Of String)    'design variable groups, in variable order
     Public SectionCount As Integer          'W sections of the library (variable values 0 .. SectionCount - 1)
+End Class
+
+'Value of a method parameter (OptInfo.Params, see MethodCatalog)
+Public Class MethodParam_
+    Public Method As String
+    Public Key As String
+    Public Value As Double
+End Class
+
+'State of the optimization methods between loops (part of the backup)
+Public Class AlgorithmState_
+    Public Trials() As Integer                                      'ABC: trials without improvement per food source
+    Public Pheromone()() As Double                                  'ACO: pheromone per variable and section
+    Public Leaders As List(Of OptimizationStructure_.Member_)       'GWO: alpha, beta, delta
 End Class
