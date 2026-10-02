@@ -59,36 +59,5 @@ Namespace My.Resources
                 resourceCulture = value
             End Set
         End Property
-        
-        '''<summary>
-        '''  Looks up a localized string similar to &lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?&gt;
-        '''&lt;SLAB-data xmlns:xsi=&quot;http://www.w3.org/2001/XMLSchema-instance&quot;&gt;
-        '''	&lt;DECK&gt;
-        '''		&lt;Name&gt;50/980&lt;/Name&gt;
-        '''		&lt;Tickness&gt;0.7&lt;/Tickness&gt;
-        '''		&lt;Weight&gt;7.01&lt;/Weight&gt;
-        '''		&lt;Cost&gt;5.96&lt;/Cost&gt;
-        '''	&lt;/DECK&gt;
-        '''	&lt;DECK&gt;
-        '''		&lt;Name&gt;50/980&lt;/Name&gt;
-        '''		&lt;Tickness&gt;0.8&lt;/Tickness&gt;
-        '''		&lt;Weight&gt;8.01&lt;/Weight&gt;
-        '''		&lt;Cost&gt;6.82&lt;/Cost&gt;
-        '''	&lt;/DECK&gt;
-        '''	&lt;DECK&gt;
-        '''		&lt;Name&gt;50/980&lt;/Name&gt;
-        '''		&lt;Tickness&gt;0.9&lt;/Tickness&gt;
-        '''		&lt;Weight&gt;9.01&lt;/Weight&gt;
-        '''		&lt;Cost&gt;7.67&lt;/Cost&gt;
-        '''	&lt;/DECK&gt;
-        '''	&lt;DECK&gt;
-        '''		&lt;Name&gt;50/980&lt;/Name&gt;
-        '''		&lt;Tickn [rest of string was truncated]&quot;;.
-        '''</summary>
-        Public ReadOnly Property Slab_data() As String
-            Get
-                Return ResourceManager.GetString("Slab_data", resourceCulture)
-            End Get
-        End Property
     End Module
 End Namespace
