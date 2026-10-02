@@ -382,12 +382,10 @@ Public Class ETABS_Class
 
     '_______________________________________________________________________________________________
     'ETABS restart (FormInfo.RestartEvery): the memory use of ETABS grows during the search (525M: 660 -> 960 MB in
-    '10 analyses). The model is saved, ETABS is closed and a new instance opens the saved working file (default, same
-    'model). App.config RestartFormat = E2K: the new instance creates the model from an .e2k export instead. ETABS 22.6
-    'loses data in the .e2k (embedded shape / rebar of encased sections, generated default design combinations; 525M
-    'gave other results), so every .e2k restart is checked: the same design is analysed in the new model and the
-    'results and the model counts must be the same, otherwise the saved .EDB is used for the rest of the run.
-    'Called before an analysis, so no results are lost.
+    '10 analyses). The model is saved, ETABS is closed and a new instance opens the saved working file (same model:
+    'the same design gives the same results before and after the restart). Called before an analysis, so no results
+    'are lost. (An .e2k round trip was tested and dropped: ETABS 22.6 loses model data in the .e2k, 525M gave 15 %
+    'other displacements.)
     Private AnalysesSinceStart As Integer
     Public Restarts As Integer
 
@@ -403,14 +401,12 @@ Public Class ETABS_Class
         End Try
     End Function
 
-    'Number of frames, load cases, combinations and groups: the model created from the .e2k must have the same
-    Private Function ModelSignature() As String
-        Dim NF, NC, NR, NG As Integer, Names() As String = Nothing
-        SapModel.FrameObj.GetNameList(NF, Names) : Names = Nothing
-        SapModel.LoadCases.GetNameList(NC, Names) : Names = Nothing
-        SapModel.RespCombo.GetNameList(NR, Names) : Names = Nothing
-        SapModel.GroupDef.GetNameList(NG, Names)
-        Return "frames " & NF & ", cases " & NC & ", combos " & NR & ", groups " & NG
+    Private Shared Function FolderMB(ByVal Dir As String) As Double
+        Try
+            Return New DirectoryInfo(Dir).GetFiles().Sum(Function(f) f.Length) / 1048576.0
+        Catch
+            Return 0
+        End Try
     End Function
 
     'ApplicationExit of the own instance; the process is waited for (memory is released only when it ends) and ended if
@@ -444,63 +440,16 @@ Public Class ETABS_Class
         Try
             Dim ret As Integer
             Dim MemBefore As Double = ETABSMemoryMB(EtabsPid)
-            'results of the last analysis: the first .e2k restart of the run is checked against them
-            Dim UseE2K As Boolean = String.Equals(ReadSetting("RestartFormat"), "E2K", StringComparison.OrdinalIgnoreCase) AndAlso Not E2KDisabled
-            Dim Fingerprint As String = If(UseE2K AndAlso LastAnalysed IsNot Nothing, ResultFingerprint(), Nothing)
             If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)      'deletes the results
-            Dim Signature As String = ModelSignature()
             ret = SapModel.File.Save(WorkFile)
             If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save (restart) " & WorkFile) : Return ret : End If
-            Dim SizeBefore As Long = New FileInfo(WorkFile).Length
+            Dim SizeKB As Double = New FileInfo(WorkFile).Length / 1024.0
             Dim FolderBefore As Double = FolderMB(Path.GetDirectoryName(WorkFile))
-            Dim E2K As String = Path.ChangeExtension(WorkFile, ".e2k")
-            'the .e2k has no embedded steel shape / rebar of "Concrete Encasement Rectangle" sections (ETABS 22.6): a model
-            'with encased sections (final check, guard step, Check Structure) is restarted from the saved .EDB
-            Dim Encased As Integer = EncasedSectionCount()
-            Dim HaveE2K As Boolean = UseE2K AndAlso Encased = 0 AndAlso Fingerprint IsNot Nothing AndAlso SapModel.File.ExportFile(E2K, ETABSv1.eFileTypeIO.TextFile) = 0 AndAlso File.Exists(E2K)
-            If UseE2K AndAlso Not HaveE2K AndAlso Encased = 0 AndAlso Fingerprint IsNot Nothing Then Errorlogprint("Warning: .e2k export failed, ETABS is restarted with the saved model")
             ExitInstance()
             ret = StartInstance()
             If (ret <> 0) Then Return ret
-            Dim Source As String = "e2k"
-            If HaveE2K AndAlso Not OpenE2K(E2K) Then HaveE2K = False
-            If HaveE2K Then
-                Dim NewSignature As String = ModelSignature()
-                If NewSignature <> Signature Then
-                    Errorlogprint("Warning: model created from the .e2k differs (" & NewSignature & " instead of " & Signature & "); ETABS restarts use the saved .EDB in this run")
-                    E2KDisabled = True
-                    HaveE2K = False
-                Else
-                    ret = SapModel.File.Save(WorkFile.Replace(".EDB", "_e2k.EDB"))      'saved before it replaces the working file
-                    If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save (e2k model)") : Return ret : End If
-                    If Fingerprint IsNot Nothing Then
-                        'same design analysed in the model created from the .e2k: the results must be the same
-                        ret = SessionSettings(False)
-                        If ret = 0 Then ret = ReapplyDesignSettings()
-                        If ret = 0 Then ret = SapModel.Analyze.RunAnalysis()
-                        Dim After As String = If(ret = 0, ResultFingerprint(), "analysis failed")
-                        If After <> Fingerprint Then
-                            Errorlogprint("Warning: the model created from the .e2k gives other results (" & After & " instead of " & Fingerprint &
-                                          "); ETABS restarts use the saved .EDB in this run")
-                            E2KDisabled = True
-                            HaveE2K = False
-                        Else
-                            Errorlogprint("Info: .e2k restart checked: same results as the original model (" & After & ")")
-                        End If
-                        If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)
-                    End If
-                End If
-            End If
-            If HaveE2K Then
-                ret = SapModel.File.Save(WorkFile)      'the working file is the clean model from now on
-                If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save " & WorkFile) : Return ret : End If
-                File.Delete(WorkFile.Replace(".EDB", "_e2k.EDB"))
-            End If
-            If Not HaveE2K Then
-                Source = "EDB"
-                ret = SapModel.File.OpenFile(WorkFile)
-                If (ret <> 0) Then : Errorlogprint("Problem occurred on :OpenFile " & WorkFile) : Return ret : End If
-            End If
+            ret = SapModel.File.OpenFile(WorkFile)
+            If (ret <> 0) Then : Errorlogprint("Problem occurred on :OpenFile " & WorkFile) : Return ret : End If
             If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)
             ret = SessionSettings(False)
             If (ret <> 0) Then Return ret
@@ -510,54 +459,15 @@ Public Class ETABS_Class
             RunCases = Nothing
             AnalysesSinceStart = 0
             Restarts += 1
-            Errorlogprint("Info: ETABS restart " & Restarts & " after " & FormInfo.RestartEvery & " analyses (" & Source & "): memory " &
+            Errorlogprint("Info: ETABS restart " & Restarts & " after " & FormInfo.RestartEvery & " analyses: memory " &
                           MemBefore.ToString("F0", CultureInfo.InvariantCulture) & " MB -> " & ETABSMemoryMB(EtabsPid).ToString("F0", CultureInfo.InvariantCulture) & " MB, model file " &
-                          (SizeBefore / 1024.0).ToString("F0", CultureInfo.InvariantCulture) & " kB -> " & (New FileInfo(WorkFile).Length / 1024.0).ToString("F0", CultureInfo.InvariantCulture) & " kB, working folder " &
-                          FolderBefore.ToString("F0", CultureInfo.InvariantCulture) & " MB")
+                          SizeKB.ToString("F0", CultureInfo.InvariantCulture) & " kB, working folder " & FolderBefore.ToString("F0", CultureInfo.InvariantCulture) & " MB")
             Return 0
         Finally
             clk.Stop()
         End Try
     End Function
 
-    Private E2KDisabled As Boolean       'an .e2k model differed from the original: restarts reopen the saved .EDB
-
-    'Sum of the joint displacements of the drift cases / combos and the first modal periods (6 significant digits)
-    Private Function ResultFingerprint() As String
-        If SelectOutputCases() <> 0 Then Return "no results"
-        Dim N As Integer, Obj() As String = Nothing, Elm() As String = Nothing, LC() As String = Nothing, ST() As String = Nothing, SN() As Double = Nothing
-        Dim U1() As Double = Nothing, U2() As Double = Nothing, U3() As Double = Nothing, R1() As Double = Nothing, R2() As Double = Nothing, R3() As Double = Nothing
-        If SapModel.Results.JointDispl("All", ETABSv1.eItemTypeElm.GroupElm, N, Obj, Elm, LC, ST, SN, U1, U2, U3, R1, R2, R3) <> 0 OrElse N = 0 Then Return "no results"
-        Dim Sum As Double = 0
-        For k = 0 To N - 1
-            Sum += Math.Abs(U1(k)) + Math.Abs(U2(k)) + Math.Abs(U3(k))
-        Next
-        Return "displacement sum " & Sum.ToString("G6", CultureInfo.InvariantCulture) & " mm, " & N & " results"
-    End Function
-
-    Private Shared Function FolderMB(ByVal Dir As String) As Double
-        Try
-            Return New DirectoryInfo(Dir).GetFiles().Sum(Function(f) f.Length) / 1048576.0
-        Catch
-            Return 0
-        End Try
-    End Function
-
-    Private Function EncasedSectionCount() As Integer
-        Dim Version, N As Integer, Fields() As String = Nothing, Data() As String = Nothing
-        If SapModel.DatabaseTables.GetTableForDisplayArray(ENCASED_TABLE, Nothing, "", Version, Fields, N, Data) <> 0 Then Return 0
-        Return N
-    End Function
-
-    'New model from the .e2k (File.OpenFile reads .e2k text files)
-    Private Function OpenE2K(ByVal E2K As String) As Boolean
-        Dim ret As Integer = SapModel.File.OpenFile(E2K)
-        If ret <> 0 Then
-            Errorlogprint("Warning: File.OpenFile(" & E2K & ") ret " & ret & ", the saved model is used")
-            Return False
-        End If
-        Return True
-    End Function
 
     'Settings made through the API that belong to the program run: steel design code, design combinations, run flags
     Private Function ReapplyDesignSettings() As Integer

@@ -148,7 +148,7 @@ Kurallar:
   - ETABS örneği yalnızca `StartInstance` ile açılır ve `ExitInstance` ile kapanır. `ExitInstance` kendi sürecini (`EtabsPid`, `CreateObject` öncesi ve sonrası süreç listesinin farkı) bekler, 60 s sonra hâlâ çalışıyorsa sonlandırır; kullanıcının ETABS'ine dokunulmaz.
   - **ETABS yeniden başlatma** (`RestartETABS`, `FormInfo.RestartEvery`): `SetAndAnalyze` içinde, analizden önce. Model kaydedilir → `ExitInstance` → `StartInstance` → `OpenFile(WorkFile)` → `SessionSettings` (birim, çözücü) + `ReapplyDesignSettings` (çelik kodu, kombinasyonlar, çalıştırılmayan durumlar) → `InvalidateAnalysis`. `Assigned()` geçerli kalır (kesitler modelde).
   - ETABS 22.6 yeniden açılan modelde çelik dayanım kombinasyonu seçimini ilk tasarımdan önce siliyor. `G1_1_Design` her tasarımdan önce seçili sayıyı kontrol eder ve gerekirse yeniden seçer.
-  - `RestartFormat = E2K`: `.e2k` modelinde aynı tasarım yeniden analiz edilir; `ResultFingerprint` (yerdeğiştirme toplamı) ve `ModelSignature` aynı değilse `E2KDisabled`. Gömülü kesitli modelde `.e2k` kullanılmaz (`EncasedSectionCount`).
+  - `.e2k` ile yeniden oluşturma kullanılmaz (kaldırıldı): ETABS 22.6'da `.e2k` gömülü kesit verisini ve bazı model verilerini taşımıyor; 525M'de yerdeğiştirme %15 farklı çıktı.
   - `CreateWorkCopy`, 2 günden uzun süre yazılmamış eski çalışma klasörlerini siler (`DeleteStaleWorkDirs`).
 - Çıktılar:
   - `ErrorLog.txt` (model klasöründe). `Errorlogprint` mesajı `Info:` veya `Warning:` ile başlamıyorsa başına `Error:` ekler. Bilgi ve uyarı mesajları bu öneklerle yazılmalıdır.

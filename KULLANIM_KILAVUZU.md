@@ -109,7 +109,7 @@ Program seçilen modeli **değiştirmez**:
   - *Restart ETABS every … (0 = off)* (varsayılan 100): ETABS'in bellek kullanımı arama boyunca büyür (525M: 10 analizde 660 → 960 MB). Bu sayıda analizden sonra model kaydedilir, ETABS kapatılır ve yeni bir ETABS kaydedilen modeli açar.
     - Sonuçlar değişmez: aynı tasarım yeniden başlatmadan önce ve sonra aynı öteleme, çelik ve kompozit oranlarını verir (fark yalnızca 1e-13 düzeyinde çözücü gürültüsü).
     - Bir yeniden başlatma 525M modelinde yaklaşık 40–47 s sürer (100 analizde bir: yaklaşık %2 ek süre); bellek yaklaşık 580 MB'a iner. Günlük: `Info: ETABS restart …` (bellek, model dosyası, çalışma klasörü boyutu).
-    - `App.config` > `RestartFormat = E2K` ile model `.e2k` dışa aktarımından yeniden oluşturulur. **Önerilmez:** ETABS 22.6'da `.e2k` gömülü kesitlerin çelik profilini / donatısını ve bazı model verilerini taşımıyor; 525M modelinde ötelemeler %15 farklı çıktı. Her `.e2k` yeniden başlatması aynı tasarımın ek bir analiziyle kontrol edilir; fark varsa uyarı yazılır ve koşunun geri kalanında kaydedilen `.EDB` kullanılır.
+    - Yeniden başlatma kaydedilen `.EDB` modeliyle yapılır. `.e2k` ile yeniden oluşturma denendi ve kullanılmadı: ETABS 22.6'da `.e2k` model verilerinin bir kısmını taşımıyor (525M modelinde ötelemeler %15 farklı çıktı).
 - **HS / BBO parametreleri.**
 
 ## 4. Kompozit kolon ayarları (`EncasedSections.xml`)

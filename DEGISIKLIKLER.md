@@ -5,6 +5,21 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 12: E2K ile yeniden açma kaldırıldı
+
+- Kullanıcı isteğiyle `RestartFormat = E2K` seçeneği ve ilgili kod kaldırıldı:
+  - `App.config` anahtarı;
+  - `.e2k` dışa aktarma ve açma;
+  - sonuç ve model karşılaştırma fonksiyonları (`ResultFingerprint`, `ModelSignature`, `EncasedSectionCount`, `OpenE2K`).
+- ETABS yeniden başlatması yalnızca kaydedilen `.EDB` modeliyle yapılıyor.
+- Load BackUp iyileştirmeleri (Aşama 11) değişmedi.
+- **Testler:**
+  - Şeffaflık: yeniden başlatmadan önce ve sonra ceza, maliyet ve kısıtlar aynı (fark 1e-13).
+  - Formdan koşu (*Restart ETABS every* = 10, 25 analiz): 3 yeniden başlatma; bellek 770–780 MB'tan yaklaşık 575 MB'a indi. En iyi maliyet 7519,18; koşu "completed successfully" ile bitti.
+  - Test22 tüm testleri geçti; MSBuild uyarısız.
+
+---
+
 ## 2026-10-02 — Aşama 11: Yedekten devam (Load BackUp) ve ETABS aç/kapa
 
 ### Load BackUp incelemesi
