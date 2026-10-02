@@ -72,6 +72,7 @@ Public Class ETABS_Class
 
     'Result cache: design vector before repair -> evaluated member (repaired vector, cost, penalty)
     Private ReadOnly Cache As New Dictionary(Of String, OptimizationStructure_.Member_)
+    Private CacheFile As String              'result cache on disk (one line per entry, appended), Nothing: memory only
     'Section index currently assigned in ETABS per design variable (-1 = unknown): unchanged groups are not re-assigned
     Private Assigned() As Integer
     'Design vector of the current analysis results (Nothing: model changed since): SetAndAnalyze skips a repeat
@@ -127,9 +128,7 @@ Public Class ETABS_Class
 
     'Close ETABS and remove the working folder (no message box)
     Public Sub Shutdown()
-        ETABSObject?.ApplicationExit(False)
-        SapModel = Nothing
-        ETABSObject = Nothing
+        ExitInstance()
         DeleteWorkDir()
     End Sub
 
@@ -222,6 +221,7 @@ Public Class ETABS_Class
             Dim Root As String = ReadSetting("WorkFolder")
             If String.IsNullOrWhiteSpace(Root) Then Root = Path.Combine(Path.GetTempPath(), "SteelFrameOpt")
             Dim Name As String = Path.GetFileNameWithoutExtension(SourceFile)
+            DeleteStaleWorkDirs(Root)
             Dim Stamp As String = Date.Now.ToString("yyyyMMdd_HHmmss")
             WorkDir = Path.Combine(Root, Name & "_" & Stamp)
             Dim k As Integer = 1
@@ -238,6 +238,23 @@ Public Class ETABS_Class
             Return -1
         End Try
     End Function
+
+    'Working folders of interrupted runs (power failure, killed process) stay behind. A running search writes its
+    'folder at every analysis, so folders not written for STALE_WORKDIR_DAYS days are removed.
+    Private Const STALE_WORKDIR_DAYS As Double = 2
+    Private Sub DeleteStaleWorkDirs(ByVal Root As String)
+        If Not Directory.Exists(Root) Then Return
+        For Each d In Directory.GetDirectories(Root)
+            Try
+                Dim Last As Date = New DirectoryInfo(d).GetFiles("*", SearchOption.AllDirectories).Select(Function(f) f.LastWriteTime).DefaultIfEmpty(Directory.GetLastWriteTime(d)).Max()
+                If (Date.Now - Last).TotalDays < STALE_WORKDIR_DAYS Then Continue For
+                Directory.Delete(d, True)
+                Errorlogprint("Info: working folder of an interrupted run removed: " & d)
+            Catch
+                'in use or not accessible: kept
+            End Try
+        Next
+    End Sub
 
     'ETABS may hold the analysis files for a moment after exit: retry, never fail the run
     Private Sub DeleteWorkDir()
@@ -294,30 +311,11 @@ Public Class ETABS_Class
             SectionPropertyData = Alt
         End If
 
-        'always a new ETABS instance: attaching to a running one would let Shutdown close the user's ETABS
-        Try
-            Dim myHelper As ETABSv1.cHelper = New ETABSv1.Helper
-            ETABSObject = myHelper.CreateObject(ProgramPath)
-        Catch ex As Exception
-            Errorlogprint("Cannot start a new instance of the program: " & ex.Message)
-            Return -1
-        End Try
-        If ETABSObject Is Nothing Then
-            Errorlogprint("Failed to create ETABS object.")
-            Return -1
-        End If
-        ret = ETABSObject.ApplicationStart()
-        If (ret <> 0) Then : Errorlogprint("Problem occurred on :ApplicationStart") : Return ret : End If
-
-        'Get a reference to cSapModel to access all OAPI classes and functions
-        SapModel = ETABSObject.SapModel
+        ETABSProgram = ProgramPath
+        ret = StartInstance()
+        If (ret <> 0) Then Return ret
         Dim Ver As String = Nothing, VerNum As Double
         If SapModel.GetVersion(Ver, VerNum) = 0 Then Errorlogprint("Info: ETABS " & Ver & " (" & ProgramPath & ")")
-
-        If FormInfo.HideETABS = True Then
-            ret = ETABSObject.Hide
-            If (ret <> 0) Then : Errorlogprint("Problem occurred on :Hide model") : Return ret : End If
-        End If
 
         ret = CreateWorkCopy(SapFileName)
         If (ret <> 0) Then : Errorlogprint("Problem occurred on :CreateWorkCopy") : Return ret : End If
@@ -328,23 +326,257 @@ Public Class ETABS_Class
             ret = SapModel.SetModelIsLocked(False)
             If (ret <> 0) Then : Errorlogprint("Problem occurred on :Unlock model") : Return ret : End If
         End If
-        '_____________________________________________________
-        'set present units to kN-mm (section library is in mm)
-        ret = SapModel.SetPresentUnits(ETABSv1.eUnits.kN_mm_C)
-        If (ret <> 0) Then : Errorlogprint("Problem occurred on :SetPresentUnits") : Return ret : End If
-        Dim SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads As Integer, StiffCase As String = Nothing
-        If SapModel.Analyze.GetSolverOption_3(SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 Then
-            Errorlogprint("Info: solver type " & SolverType & ", process " & ProcessType & ", parallel runs " & ParallelRuns & ", threads " & Threads)
-            'analysis inside the ETABS process (1) instead of a separate process: about 10 % faster per analysis (525M model)
-            If ProcessType <> ANALYSIS_IN_PROCESS AndAlso SapModel.Analyze.SetSolverOption_3(SolverType, ANALYSIS_IN_PROCESS, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 Then
-                Errorlogprint("Info: analysis process set to " & ANALYSIS_IN_PROCESS & " (ETABS process)")
-            End If
-        End If
+        ret = SessionSettings(True)
+        If (ret <> 0) Then Return ret
         'material weight per unit volume
         Dim m As Double
         ret = SapModel.PropMaterial.GetWeightAndMass(STEEL_MATERIAL, A992Fy50Weight, m)
         If (ret <> 0) Then : Errorlogprint("Problem occurred on :PropMaterial.GetWeightAndMass") : Return ret : End If
         Return ret
+    End Function
+
+    'New ETABS instance (always new: attaching to a running one would let Shutdown close the user's ETABS)
+    Private ETABSProgram As String
+    Private EtabsPid As Integer = -1     'process of the instance started by this program
+    Private Function StartInstance() As Integer
+        Dim Before As New HashSet(Of Integer)(Diagnostics.Process.GetProcessesByName("ETABS").Select(Function(x) x.Id))
+        Try
+            Dim myHelper As ETABSv1.cHelper = New ETABSv1.Helper
+            ETABSObject = myHelper.CreateObject(ETABSProgram)
+        Catch ex As Exception
+            Errorlogprint("Cannot start a new instance of the program: " & ex.Message)
+            Return -1
+        End Try
+        If ETABSObject Is Nothing Then
+            Errorlogprint("Failed to create ETABS object.")
+            Return -1
+        End If
+        Dim ret As Integer = ETABSObject.ApplicationStart()
+        If (ret <> 0) Then : Errorlogprint("Problem occurred on :ApplicationStart") : Return ret : End If
+        'Get a reference to cSapModel to access all OAPI classes and functions
+        SapModel = ETABSObject.SapModel
+        Dim Started = Diagnostics.Process.GetProcessesByName("ETABS").Where(Function(x) Not Before.Contains(x.Id)).ToList()
+        EtabsPid = If(Started.Count = 1, Started(0).Id, -1)        'unknown if other ETABS instances started at the same time
+        If FormInfo.HideETABS = True Then
+            ret = ETABSObject.Hide
+            If (ret <> 0) Then : Errorlogprint("Problem occurred on :Hide model") : Return ret : End If
+        End If
+        Return 0
+    End Function
+
+    'Units and solver options: set after opening the model and again after a restart
+    Private Function SessionSettings(ByVal LogInfo As Boolean) As Integer
+        'present units kN-mm (section library is in mm)
+        Dim ret As Integer = SapModel.SetPresentUnits(ETABSv1.eUnits.kN_mm_C)
+        If (ret <> 0) Then : Errorlogprint("Problem occurred on :SetPresentUnits") : Return ret : End If
+        Dim SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads As Integer, StiffCase As String = Nothing
+        If SapModel.Analyze.GetSolverOption_3(SolverType, ProcessType, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 Then
+            If LogInfo Then Errorlogprint("Info: solver type " & SolverType & ", process " & ProcessType & ", parallel runs " & ParallelRuns & ", threads " & Threads)
+            'analysis inside the ETABS process (1) instead of a separate process: about 10 % faster per analysis (525M model)
+            If ProcessType <> ANALYSIS_IN_PROCESS AndAlso SapModel.Analyze.SetSolverOption_3(SolverType, ANALYSIS_IN_PROCESS, ParallelRuns, MaxFileMB, Threads, StiffCase) = 0 AndAlso LogInfo Then
+                Errorlogprint("Info: analysis process set to " & ANALYSIS_IN_PROCESS & " (ETABS process)")
+            End If
+        End If
+        Return 0
+    End Function
+
+    '_______________________________________________________________________________________________
+    'ETABS restart (FormInfo.RestartEvery): the memory use of ETABS grows during the search (525M: 660 -> 960 MB in
+    '10 analyses). The model is saved, ETABS is closed and a new instance opens the saved working file (default, same
+    'model). App.config RestartFormat = E2K: the new instance creates the model from an .e2k export instead. ETABS 22.6
+    'loses data in the .e2k (embedded shape / rebar of encased sections, generated default design combinations; 525M
+    'gave other results), so every .e2k restart is checked: the same design is analysed in the new model and the
+    'results and the model counts must be the same, otherwise the saved .EDB is used for the rest of the run.
+    'Called before an analysis, so no results are lost.
+    Private AnalysesSinceStart As Integer
+    Public Restarts As Integer
+
+    Private Function RestartDue() As Boolean
+        Return FormInfo.RestartEvery > 0 AndAlso AnalysesSinceStart >= FormInfo.RestartEvery
+    End Function
+
+    Private Shared Function ETABSMemoryMB(ByVal Pid As Integer) As Double
+        Try
+            Return Diagnostics.Process.GetProcessById(Pid).WorkingSet64 / 1048576.0
+        Catch
+            Return 0
+        End Try
+    End Function
+
+    'Number of frames, load cases, combinations and groups: the model created from the .e2k must have the same
+    Private Function ModelSignature() As String
+        Dim NF, NC, NR, NG As Integer, Names() As String = Nothing
+        SapModel.FrameObj.GetNameList(NF, Names) : Names = Nothing
+        SapModel.LoadCases.GetNameList(NC, Names) : Names = Nothing
+        SapModel.RespCombo.GetNameList(NR, Names) : Names = Nothing
+        SapModel.GroupDef.GetNameList(NG, Names)
+        Return "frames " & NF & ", cases " & NC & ", combos " & NR & ", groups " & NG
+    End Function
+
+    'ApplicationExit of the own instance; the process is waited for (memory is released only when it ends) and ended if
+    'it is still running after EXIT_WAIT_S (only the process started by this program)
+    Private Const EXIT_WAIT_S As Integer = 60
+    Private Sub ExitInstance()
+        Try
+            ETABSObject?.ApplicationExit(False)
+        Catch ex As Exception
+            Errorlogprint("Warning: ApplicationExit: " & ex.Message)
+        End Try
+        SapModel = Nothing : ETABSObject = Nothing
+        If EtabsPid < 0 Then Return
+        Try
+            Dim p = Diagnostics.Process.GetProcessById(EtabsPid)
+            If Not p.WaitForExit(EXIT_WAIT_S * 1000) Then
+                Errorlogprint("Warning: ETABS process " & EtabsPid & " still running " & EXIT_WAIT_S & " s after ApplicationExit, ended")
+                p.Kill()
+                p.WaitForExit(10000)
+            End If
+        Catch ex As ArgumentException
+            'already ended
+        Catch ex As Exception
+            Errorlogprint("Warning: ETABS process " & EtabsPid & ": " & ex.Message)
+        End Try
+        EtabsPid = -1
+    End Sub
+
+    Public Function RestartETABS() As Integer
+        Dim clk = Clock("RestartETABS") : clk.Start()
+        Try
+            Dim ret As Integer
+            Dim MemBefore As Double = ETABSMemoryMB(EtabsPid)
+            'results of the last analysis: the first .e2k restart of the run is checked against them
+            Dim UseE2K As Boolean = String.Equals(ReadSetting("RestartFormat"), "E2K", StringComparison.OrdinalIgnoreCase) AndAlso Not E2KDisabled
+            Dim Fingerprint As String = If(UseE2K AndAlso LastAnalysed IsNot Nothing, ResultFingerprint(), Nothing)
+            If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)      'deletes the results
+            Dim Signature As String = ModelSignature()
+            ret = SapModel.File.Save(WorkFile)
+            If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save (restart) " & WorkFile) : Return ret : End If
+            Dim SizeBefore As Long = New FileInfo(WorkFile).Length
+            Dim FolderBefore As Double = FolderMB(Path.GetDirectoryName(WorkFile))
+            Dim E2K As String = Path.ChangeExtension(WorkFile, ".e2k")
+            'the .e2k has no embedded steel shape / rebar of "Concrete Encasement Rectangle" sections (ETABS 22.6): a model
+            'with encased sections (final check, guard step, Check Structure) is restarted from the saved .EDB
+            Dim Encased As Integer = EncasedSectionCount()
+            Dim HaveE2K As Boolean = UseE2K AndAlso Encased = 0 AndAlso Fingerprint IsNot Nothing AndAlso SapModel.File.ExportFile(E2K, ETABSv1.eFileTypeIO.TextFile) = 0 AndAlso File.Exists(E2K)
+            If UseE2K AndAlso Not HaveE2K AndAlso Encased = 0 AndAlso Fingerprint IsNot Nothing Then Errorlogprint("Warning: .e2k export failed, ETABS is restarted with the saved model")
+            ExitInstance()
+            ret = StartInstance()
+            If (ret <> 0) Then Return ret
+            Dim Source As String = "e2k"
+            If HaveE2K AndAlso Not OpenE2K(E2K) Then HaveE2K = False
+            If HaveE2K Then
+                Dim NewSignature As String = ModelSignature()
+                If NewSignature <> Signature Then
+                    Errorlogprint("Warning: model created from the .e2k differs (" & NewSignature & " instead of " & Signature & "); ETABS restarts use the saved .EDB in this run")
+                    E2KDisabled = True
+                    HaveE2K = False
+                Else
+                    ret = SapModel.File.Save(WorkFile.Replace(".EDB", "_e2k.EDB"))      'saved before it replaces the working file
+                    If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save (e2k model)") : Return ret : End If
+                    If Fingerprint IsNot Nothing Then
+                        'same design analysed in the model created from the .e2k: the results must be the same
+                        ret = SessionSettings(False)
+                        If ret = 0 Then ret = ReapplyDesignSettings()
+                        If ret = 0 Then ret = SapModel.Analyze.RunAnalysis()
+                        Dim After As String = If(ret = 0, ResultFingerprint(), "analysis failed")
+                        If After <> Fingerprint Then
+                            Errorlogprint("Warning: the model created from the .e2k gives other results (" & After & " instead of " & Fingerprint &
+                                          "); ETABS restarts use the saved .EDB in this run")
+                            E2KDisabled = True
+                            HaveE2K = False
+                        Else
+                            Errorlogprint("Info: .e2k restart checked: same results as the original model (" & After & ")")
+                        End If
+                        If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)
+                    End If
+                End If
+            End If
+            If HaveE2K Then
+                ret = SapModel.File.Save(WorkFile)      'the working file is the clean model from now on
+                If (ret <> 0) Then : Errorlogprint("Problem occurred on :File.Save " & WorkFile) : Return ret : End If
+                File.Delete(WorkFile.Replace(".EDB", "_e2k.EDB"))
+            End If
+            If Not HaveE2K Then
+                Source = "EDB"
+                ret = SapModel.File.OpenFile(WorkFile)
+                If (ret <> 0) Then : Errorlogprint("Problem occurred on :OpenFile " & WorkFile) : Return ret : End If
+            End If
+            If SapModel.GetModelIsLocked Then SapModel.SetModelIsLocked(False)
+            ret = SessionSettings(False)
+            If (ret <> 0) Then Return ret
+            ret = ReapplyDesignSettings()
+            If (ret <> 0) Then Return ret
+            InvalidateAnalysis()
+            RunCases = Nothing
+            AnalysesSinceStart = 0
+            Restarts += 1
+            Errorlogprint("Info: ETABS restart " & Restarts & " after " & FormInfo.RestartEvery & " analyses (" & Source & "): memory " &
+                          MemBefore.ToString("F0", CultureInfo.InvariantCulture) & " MB -> " & ETABSMemoryMB(EtabsPid).ToString("F0", CultureInfo.InvariantCulture) & " MB, model file " &
+                          (SizeBefore / 1024.0).ToString("F0", CultureInfo.InvariantCulture) & " kB -> " & (New FileInfo(WorkFile).Length / 1024.0).ToString("F0", CultureInfo.InvariantCulture) & " kB, working folder " &
+                          FolderBefore.ToString("F0", CultureInfo.InvariantCulture) & " MB")
+            Return 0
+        Finally
+            clk.Stop()
+        End Try
+    End Function
+
+    Private E2KDisabled As Boolean       'an .e2k model differed from the original: restarts reopen the saved .EDB
+
+    'Sum of the joint displacements of the drift cases / combos and the first modal periods (6 significant digits)
+    Private Function ResultFingerprint() As String
+        If SelectOutputCases() <> 0 Then Return "no results"
+        Dim N As Integer, Obj() As String = Nothing, Elm() As String = Nothing, LC() As String = Nothing, ST() As String = Nothing, SN() As Double = Nothing
+        Dim U1() As Double = Nothing, U2() As Double = Nothing, U3() As Double = Nothing, R1() As Double = Nothing, R2() As Double = Nothing, R3() As Double = Nothing
+        If SapModel.Results.JointDispl("All", ETABSv1.eItemTypeElm.GroupElm, N, Obj, Elm, LC, ST, SN, U1, U2, U3, R1, R2, R3) <> 0 OrElse N = 0 Then Return "no results"
+        Dim Sum As Double = 0
+        For k = 0 To N - 1
+            Sum += Math.Abs(U1(k)) + Math.Abs(U2(k)) + Math.Abs(U3(k))
+        Next
+        Return "displacement sum " & Sum.ToString("G6", CultureInfo.InvariantCulture) & " mm, " & N & " results"
+    End Function
+
+    Private Shared Function FolderMB(ByVal Dir As String) As Double
+        Try
+            Return New DirectoryInfo(Dir).GetFiles().Sum(Function(f) f.Length) / 1048576.0
+        Catch
+            Return 0
+        End Try
+    End Function
+
+    Private Function EncasedSectionCount() As Integer
+        Dim Version, N As Integer, Fields() As String = Nothing, Data() As String = Nothing
+        If SapModel.DatabaseTables.GetTableForDisplayArray(ENCASED_TABLE, Nothing, "", Version, Fields, N, Data) <> 0 Then Return 0
+        Return N
+    End Function
+
+    'New model from the .e2k (File.OpenFile reads .e2k text files)
+    Private Function OpenE2K(ByVal E2K As String) As Boolean
+        Dim ret As Integer = SapModel.File.OpenFile(E2K)
+        If ret <> 0 Then
+            Errorlogprint("Warning: File.OpenFile(" & E2K & ") ret " & ret & ", the saved model is used")
+            Return False
+        End If
+        Return True
+    End Function
+
+    'Settings made through the API that belong to the program run: steel design code, design combinations, run flags
+    Private Function ReapplyDesignSettings() As Integer
+        Dim ret As Integer
+        If SteelFrameDesignGroupIDs.Count > 0 Then
+            ret = SapModel.DesignSteel.SetCode(FormInfo.FrameInfo.SteelDesignCode)
+            If (ret <> 0) Then : Errorlogprint("Problem occurred on :DesignSteel.SetCode (restart)") : Return ret : End If
+        End If
+        For Each c In ComboNames.DesignSteelStrength
+            SapModel.DesignSteel.SetComboStrength(c, True)
+        Next
+        For Each c In ComboNames.DesignSteelDeflection
+            SapModel.DesignSteel.SetComboDeflection(c, True)
+        Next
+        For Each c In DisabledCases
+            ret = SapModel.Analyze.SetRunCaseFlag(c, False)
+            If (ret <> 0) Then : Errorlogprint("Problem occurred on :Analyze.SetRunCaseFlag " & c & " (restart)") : Return ret : End If
+        Next
+        Return 0
     End Function
 
     Private Function InitializePoints() As Integer
@@ -1171,10 +1403,55 @@ Public Class ETABS_Class
         If Key IsNot Nothing AndAlso ret = 0 Then
             Dim Result As New OptimizationStructure_.Member_ With {.DesignVariables = CType(Member.DesignVariables.Clone(), Integer()),
                 .CostValue = Member.CostValue, .Penalty = Member.Penalty, .PenalizedCost = Member.PenalizedCost}
-            Cache(Key) = Result
+            AddToCache(Key, Result)
             'a feasible result is final: its repaired vector gives the same result (metaheuristics often regenerate it)
-            If Member.Penalty = 0 Then Cache(String.Join(",", Member.DesignVariables)) = Result
+            If Member.Penalty = 0 Then AddToCache(String.Join(",", Member.DesignVariables), Result)
         End If
+    End Sub
+
+    Private Sub AddToCache(ByVal Key As String, ByVal Result As OptimizationStructure_.Member_)
+        Cache(Key) = Result
+        If CacheFile Is Nothing Then Return
+        Try
+            File.AppendAllText(CacheFile, Key & "|" & String.Join(",", Result.DesignVariables) & "|" & Result.CostValue.ToString("R", CultureInfo.InvariantCulture) & "|" &
+                               Result.Penalty.ToString("R", CultureInfo.InvariantCulture) & "|" & Result.PenalizedCost.ToString("R", CultureInfo.InvariantCulture) & Environment.NewLine)
+        Catch ex As Exception
+            Errorlogprint("Warning: result cache file not written, cache kept in memory only: " & ex.Message)
+            CacheFile = Nothing
+        End Try
+    End Sub
+
+    'Result cache of the run on disk: a restarted run (backup) reads the results of the interrupted one and does not
+    'analyse those designs again. Lines that cannot be read (power failure while writing) are skipped.
+    Public Sub AttachCacheFile(ByVal FileName As String, ByVal LoadExisting As Boolean)
+        If Not FormInfo.UseCache Then Return
+        Try
+            If Not LoadExisting AndAlso File.Exists(FileName) Then File.Delete(FileName)
+            If LoadExisting AndAlso File.Exists(FileName) Then
+                Dim N As Integer = 0
+                For Each Line In File.ReadLines(FileName)
+                    Dim p() As String = Line.Split("|"c)
+                    If p.Length <> 5 Then Continue For
+                    Dim c, pen, pc As Double
+                    If Not (Double.TryParse(p(2), NumberStyles.Float, CultureInfo.InvariantCulture, c) AndAlso Double.TryParse(p(3), NumberStyles.Float, CultureInfo.InvariantCulture, pen) AndAlso
+                            Double.TryParse(p(4), NumberStyles.Float, CultureInfo.InvariantCulture, pc)) Then Continue For
+                    Dim dv() As Integer
+                    Try
+                        dv = p(1).Split(","c).Select(Function(x) Integer.Parse(x, CultureInfo.InvariantCulture)).ToArray()
+                    Catch
+                        Continue For
+                    End Try
+                    If dv.Length <> SteelFrameDesignGroupIDs.Count Then Continue For
+                    Cache(p(0)) = New OptimizationStructure_.Member_ With {.DesignVariables = dv, .CostValue = c, .Penalty = pen, .PenalizedCost = pc}
+                    N += 1
+                Next
+                Errorlogprint("Info: result cache " & FileName & ": " & N & " entries loaded")
+            End If
+            CacheFile = FileName
+        Catch ex As Exception
+            Errorlogprint("Warning: result cache file " & FileName & " not used: " & ex.Message)
+            CacheFile = Nothing
+        End Try
     End Sub
 
     Private Sub EvaluateCore(ByRef Member As OptimizationStructure_.Member_, ByVal Sect_Ind() As Integer, ByRef ret As Integer, ByVal repair As Boolean)
@@ -1199,7 +1476,12 @@ Public Class ETABS_Class
             Clock("SkippedAnalysis")
             Return 0
         End If
-        Dim ret As Integer = E2_SetSection(Sect_Ind)
+        Dim ret As Integer
+        If RestartDue() Then
+            ret = RestartETABS()
+            If ret <> 0 Then : Errorlogprint("Problem occurred on :RestartETABS") : Return ret : End If
+        End If
+        ret = E2_SetSection(Sect_Ind)
         If ret <> 0 Then Return ret
         ret = E3_Analysis()
         If ret = 0 Then LastAnalysed = CType(Sect_Ind.Clone(), Integer())
@@ -1314,6 +1596,7 @@ Public Class ETABS_Class
         'no File.Save: the model was opened from WorkFile, so it has a file path (required by RunAnalysis)
         Dim c = Clock("Analysis") : c.Start()
         Dim ret As Integer = SapModel.Analyze.RunAnalysis
+        AnalysesSinceStart += 1
         c.Stop()
         If (ret <> 0) Then : Errorlogprint("Problem occurred on :RunAnalysis") : Return ret : End If
         'cases that were set to run but did not finish (e.g. unstable / not converged nonlinear cases)
@@ -1337,6 +1620,17 @@ Public Class ETABS_Class
     Private Function G1_1_Design() As Integer
         Dim ret As Integer
         If SteelFrameDesignGroupIDs.Count > 0 Then
+            'ETABS 22.6 clears the strength combination selection of a reopened model before its first design (ETABS
+            'restart): without the check the design runs with other combinations
+            Dim DN As Integer, DC() As String = Nothing
+            SapModel.DesignSteel.GetComboStrength(DN, DC)
+            If DN <> ComboNames.DesignSteelStrength.Count Then
+                For Each cmb In ComboNames.DesignSteelStrength
+                    ret = SapModel.DesignSteel.SetComboStrength(cmb, True)
+                    If (ret <> 0) Then : Errorlogprint("Problem occurred on :DesignSteel.SetComboStrength " & cmb) : Return ret : End If
+                Next
+                Errorlogprint("Info: steel design strength combinations selected again (" & DN & " selected in the model, " & ComboNames.DesignSteelStrength.Count & " expected)")
+            End If
             Dim c = Clock("SteelDesign") : c.Start()
             ret = SapModel.DesignSteel.StartDesign
             c.Stop()
@@ -1562,8 +1856,9 @@ Public Class ETABS_Class
                     AndAlso c.GroupName IsNot Nothing AndAlso VarIndex.ContainsKey(c.GroupName)).Select(Function(c) VarIndex(c.GroupName)).Distinct()
     End Function
 
-    'Final ETABS guard: composite groups failing the ETABS composite design move to the next section (within Ub).
-    'Returns the number of changed variables.
+    'Final ETABS guard: composite groups failing the ETABS composite design move to the next larger section (by area,
+    'within Ub) that keeps the geometric constraints with the neighbouring columns and the connected beams (the next
+    'section by area may be less deep). Returns the number of changed variables.
     Public Function StepUpETABSFailures(ByRef Sect_Ind() As Integer) As Integer
         Dim Changed As Integer = 0
         For Each kv In ETABSRatioByVar
@@ -1573,12 +1868,37 @@ Public Class ETABS_Class
                 Errorlogprint("Warning: group " & Groups(SteelFrameDesignGroupIDs(v)).GroupName & " fails the ETABS composite design (" & kv.Value.ToString("F3", CultureInfo.InvariantCulture) & ") at its upper bound")
                 Continue For
             End If
+            Dim Current() As Integer = Sect_Ind
+            Dim [Next] As Integer = -1
+            For k = Sect_Ind(v) + 1 To Ub(v)
+                If GeometryFits(v, k, Current) Then [Next] = k : Exit For
+            Next
+            If [Next] < 0 Then
+                [Next] = Sect_Ind(v) + 1
+                Errorlogprint("Warning: ETABS guard, group " & Groups(SteelFrameDesignGroupIDs(v)).GroupName & ": no larger section within the bounds keeps the geometric constraints")
+            End If
             Errorlogprint("Info: ETABS guard, group " & Groups(SteelFrameDesignGroupIDs(v)).GroupName & " (ETABS " & kv.Value.ToString("F3", CultureInfo.InvariantCulture) & "): " &
-                          WSections(Sect_Ind(v)).SectionName & " -> " & WSections(Sect_Ind(v) + 1).SectionName)
-            Sect_Ind(v) += 1
+                          WSections(Sect_Ind(v)).SectionName & " -> " & WSections([Next]).SectionName)
+            Sect_Ind(v) = [Next]
             Changed += 1
         Next
         Return Changed
+    End Function
+
+    'Section k for variable v with the other variables of Sect_Ind: column-column (area and depth between the upper and
+    'the lower column) and beam-column (beam flange within the connection gap) constraints
+    Private Function GeometryFits(ByVal v As Integer, ByVal k As Integer, ByVal Sect_Ind() As Integer) As Boolean
+        Dim S As SectionStructures_.STEEL_I_SECTION = WSections(k)
+        For Each CtoC In GeoCons.CtoCList
+            Dim UpVar As Integer = VarIndex(CtoC(0)), DownVar As Integer = VarIndex(CtoC(1))
+            If UpVar = v AndAlso (S.Area > WSections(Sect_Ind(DownVar)).Area OrElse S.Depth > WSections(Sect_Ind(DownVar)).Depth) Then Return False
+            If DownVar = v AndAlso (S.Area < WSections(Sect_Ind(UpVar)).Area OrElse S.Depth < WSections(Sect_Ind(UpVar)).Depth) Then Return False
+        Next
+        For Each BtoC In GeoCons.BtoCList
+            If VarIndex(BtoC(0)) <> v Then Continue For
+            If WSections(Sect_Ind(VarIndex(BtoC(1)))).FlangeLength > ConnectionGap(S, BtoC(2)) Then Return False
+        Next
+        Return True
     End Function
 
     Private Sub StepVariable(ByRef Sect_Ind() As Integer, ByVal v As Integer, ByVal StepSize As Integer)

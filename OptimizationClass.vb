@@ -466,7 +466,15 @@ Public Class OptimizationClass
         If ETABSModel IsNot Nothing Then ETABSModel.Close(ret, If(FinalFails, "Optimization completed, but the final design does not satisfy all checks. See the warnings in ErrorLog.txt.", Nothing))
     End Sub
 
-    Public Sub Backup_Write()
+    'Backup of the running search: <output>.backup.xml (next to the output file, independent of the current directory)
+    Public Shared Function BackupPath(ByVal OutputFile As String) As String
+        Return Path.ChangeExtension(OutputFile, ".backup.xml")
+    End Function
+
+    'midLoop: written during a loop (time based); the loop is repeated on restart, so the previous loop number is saved.
+    'The file is written to <file>.tmp and then replaces the backup (the previous one stays as <file>.bak): a power
+    'failure while writing never leaves a broken backup behind.
+    Public Sub Backup_Write(Optional ByVal midLoop As Boolean = False)
         Dim Results = New Class_Backup() With {
             .Memory = Memory,
             .FormInfo = FormInfo,
@@ -475,13 +483,49 @@ Public Class OptimizationClass
             .BestValue = BestValue,
             .Histories = Histories,
             .iter = iter,
-            .ILoop = ILoop
+            .ILoop = If(midLoop, Math.Max(ILoop - 1, 0), ILoop),
+            .SavedAt = Date.Now
         }
-        Dim serializer As New XmlSerializer(GetType(Class_Backup))
-        Using writer As New StreamWriter("BackUp.xml")
-            serializer.Serialize(writer, Results)
-        End Using
+        Dim Target As String = BackupPath(FileList.OutputFile)
+        Dim Tmp As String = Target & ".tmp"
+        Try
+            Dim serializer As New XmlSerializer(GetType(Class_Backup))
+            Using fs As New FileStream(Tmp, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.WriteThrough)
+                Using writer As New StreamWriter(fs)
+                    serializer.Serialize(writer, Results)
+                End Using
+            End Using
+            If File.Exists(Target) Then
+                File.Copy(Target, Target & ".bak", True)
+                File.Delete(Target)
+            End If
+            File.Move(Tmp, Target)
+        Catch ex As Exception
+            'a failed backup must not stop the search
+            LogError("Warning: backup not written (" & Target & "): " & ex.Message)
+        End Try
     End Sub
+
+    'Backup of an interrupted run; the previous backup (.bak) if the last one is not readable
+    Public Shared Function Backup_Read(ByVal OutputFile As String, ByRef Message As String) As Class_Backup
+        Dim Target As String = BackupPath(OutputFile)
+        Dim serializer As New XmlSerializer(GetType(Class_Backup))
+        For Each f In {Target, Target & ".bak"}
+            If Not File.Exists(f) Then Continue For
+            Try
+                Using reader As New StreamReader(f)
+                    Dim Results = CType(serializer.Deserialize(reader), Class_Backup)
+                    If Results.Memory Is Nothing OrElse Results.Memory.Count = 0 Then Throw New InvalidDataException("empty memory")
+                    Message = "Info: run restarted from " & f & " (saved " & Results.SavedAt.ToString("yyyy-MM-dd HH:mm:ss") & ", " & Results.iter & " analyses, loop " & Results.ILoop & ")"
+                    Return Results
+                End Using
+            Catch ex As Exception
+                Message = "Warning: backup " & f & " not readable: " & ex.Message
+            End Try
+        Next
+        If Message Is Nothing Then Message = "No backup of the output file found: " & Target
+        Return Nothing
+    End Function
     Private Sub Yazdir_Final()
         Dim OptResults = New ClassFinal() With {
             .GlobalBest = GlobalBest,
@@ -521,6 +565,7 @@ Public Class Class_Backup
     Public iter As Integer
     Public ILoop As Integer
     Public GlobalBestPrint As List(Of String)
+    Public SavedAt As Date
 End Class
 
 

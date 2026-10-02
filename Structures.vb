@@ -186,6 +186,7 @@ Public Class MiscellaneousStructures
         Public SkipCtoC As Boolean              'no column-to-column geometric constraint (form: "Column to Column" unchecked)
         Public SkipBtoC As Boolean              'no beam-to-column geometric constraint
         Public PDelta As Boolean                'P-Delta analysis in the working copy (old backups: model as it is)
+        Public RestartEvery As Integer          'ETABS restarted from an .e2k export every N analyses (0 = never; old backups: never)
     End Structure
 
     'Relative unit costs (composite mode): steel and rebar per kN, concrete per m³, formwork per m²

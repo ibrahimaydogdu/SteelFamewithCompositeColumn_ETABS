@@ -5,6 +5,52 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 11: Yedekten devam (Load BackUp) ve ETABS aç/kapa
+
+### Load BackUp incelemesi
+Bulunan eksikler:
+- Yedek `BackUp.xml` göreli yolla, o anki klasöre yazılıyordu. Dosya seçme penceresi bu klasörü değiştirebildiği için yedek beklenmedik bir yerde kalabiliyordu.
+- Yazma atomik değildi. Yazma sırasında elektrik kesilirse tek yedek bozuluyordu.
+- Yedek yalnızca çevrim sonunda yazılıyordu. Bellek 100 iken bir çevrim saatler sürer; kesintide bütün çevrim kayboluyordu.
+- Sonuç önbelleği kaydedilmiyordu. Devam eden koşu aynı tasarımları yeniden analiz ediyordu.
+- Kesilen koşunun çalışma klasörü `%TEMP%` altında kalıyordu.
+
+Düzeltmeler:
+- Yedek çıktı dosyasının yanına yazılıyor: `<çıktı>.backup.xml`. Devam etmek için formda kesilen koşunun çıktı dosyası seçilir.
+- Yazma önce `.tmp` dosyasına yapılıyor (`WriteThrough`), sonra eski yedeğin yerine geçiyor. Önceki yedek `.bak` olarak saklanıyor; son yedek okunamazsa `.bak` kullanılıyor.
+- Yedek çevrim içinde de 10 dakikada bir yazılıyor (`ILoop - 1`, devamda çevrim tekrarlanır). Kayıt zamanı `SavedAt` yedekte tutuluyor.
+- Sonuç önbelleği `<çıktı>.cache.txt` dosyasına satır satır ekleniyor. Devam eden koşu bu dosyayı okuyor, yeni koşu dosyayı siliyor.
+- 2 günden uzun süre yazılmamış çalışma klasörleri bir sonraki koşuda siliniyor.
+
+### ETABS aç/kapa (yeniden başlatma)
+- Özellik kodda **yoktu**: ETABS koşu boyunca bir kez açılıyordu.
+- Formda yeni alan: *Restart ETABS every N analyses* (varsayılan 100, 0 = kapalı). Değer `FormInfo.RestartEvery` alanında tutulur; eski yedeklerde 0 okunur.
+- `RestartETABS` analizden önce şu adımları uygular: model kaydedilir, ETABS kapatılır (`ExitInstance`), yeni bir örnek açılır (`StartInstance`), kaydedilen model açılır, oturum ve tasarım ayarları yeniden uygulanır.
+- `ExitInstance` programın kendi başlattığı ETABS sürecinin bitmesini bekler; süreç 60 saniye sonra hâlâ çalışıyorsa sonlandırılır. Kullanıcının ETABS'ine dokunulmaz.
+- **E2K denemesi** (`File.ExportFile` / `OpenFile`, ETABS 22.6):
+  - Gömülü kesitlerin (Concrete Encasement Rectangle) çelik profili ve donatısı `.e2k`'ya yazılmıyor. Final sonrası modelde U1 256 → 216 mm, T1 2,265 → 2,107 s oldu.
+  - Arama modelinde (yalnızca General kesitler) de yerdeğiştirme toplamı %15 farklı çıktı.
+  - Tasarım kombinasyonu sayısı 11 → 3'e düştü.
+  - Bu nedenle varsayılan yöntem kaydedilen `.EDB`'yi açmak. `App.config` > `RestartFormat = E2K` seçeneği duruyor; her `.e2k` yeniden başlatması ek bir analizle kontrol ediliyor ve fark varsa EDB'ye dönülüyor.
+- **Bulunan ETABS davranışı:** yeniden açılan modelde ETABS çelik dayanım kombinasyonu seçimini ilk tasarımdan önce siliyor. Bu durumda tasarım başka kombinasyonlarla yapılıyor ve çelik oranı 0,922 yerine 0,359 çıkıyordu. `G1_1_Design` artık her tasarımdan önce seçimi kontrol ediyor ve gerekirse yeniden yapıyor.
+
+### Koruma adımı
+- Bir üst kesit alan sırasına göre seçildiği için daha sığ bir kesit çıkabiliyordu: 30 analizlik koşuda W920X474 → W840X473 geçişi 0,085'lik geometrik ceza doğurdu.
+- Artık daha büyük kesitler içinden komşu kolon ve kiriş bağlantılarıyla geometri kısıtlarını sağlayan ilk kesit seçiliyor (`GeometryFits`).
+
+### Testler (525M kopyası, ETABS 22.6)
+- **Şeffaflık:** aynı tasarım yeniden başlatmadan önce ve sonra analiz edildi.
+  - EDB yönteminde ceza, maliyet ve tüm kısıt değerleri aynı. Fark 1e-13 düzeyinde; bu, yeniden başlatmasız kontrol analizinde de görülen çözücü gürültüsü.
+  - E2K yönteminde fark yakalandı, uyarı yazıldı ve EDB'ye dönüldü.
+- **Bellek:** 10 analizde 661 → 957 MB büyüme ölçüldü. Yeniden başlatma sonrası bellek yaklaşık 580 MB'a iniyor. Bir yeniden başlatma 40–47 saniye sürüyor.
+- **Not:** aynı tohumla iki koşu birebir aynı sonucu vermiyor. P-Delta'lı analizlerdeki 1e-13'lük çözücü gürültüsü arama yolunu değiştirebiliyor; bu yeniden başlatmadan bağımsız.
+- **Kesinti benzetimi:** formdan başlatılan koşu, ilk yedekten 60 saniye sonra ETABS ile birlikte zorla kapatıldı.
+  - Load BackUp ile koşu 22. analizden devam etti; önbellekten 17 kayıt yüklendi.
+  - Koşu 41 analizde final doğrulamasıyla bitti. En iyi maliyet 7519,18; aynı tohumla yapılan kesintisiz koşuyla aynı.
+- **Diğer kontroller:** Test22 tüm testleri geçti; Visual Studio MSBuild uyarısız; form ekranları doğru.
+
+---
+
 ## 2026-10-01 — Aşama 10: Açık kalan üç madde
 
 ### 1. İç çözücü ile ETABS farkı

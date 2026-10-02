@@ -7,6 +7,8 @@ Public Class MainForm
     Public OptClass As OptimizationClass
     Public ID_mem As Integer
     Private Const MAX_STALL_LOOPS As Integer = 20
+    Private Const BACKUP_INTERVAL_MINUTES As Double = 10       'backup also during a loop (a loop of a large memory takes hours)
+    Private BackupClock As Stopwatch
     Private ReadOnly AppTitle As String = "Steel Frame Optimization with Composite Columns (ETABS)"
     'progress display: time and analysis count since the ETABS model is ready (backup: since the restart)
     Private RunClock As Stopwatch
@@ -72,6 +74,10 @@ Public Class MainForm
                     CloseETABS(ret)
                     Exit Sub
                 End If
+                If BackupClock.Elapsed.TotalMinutes >= BACKUP_INTERVAL_MINUTES Then
+                    OptClass.Backup_Write(midLoop:=True)
+                    BackupClock.Restart()
+                End If
             Next Imem
 
             If FormInfo.OptInfo.ClearDuplicates Then
@@ -83,6 +89,7 @@ Public Class MainForm
                 End If
             End If
             OptClass.Backup_Write()
+            BackupClock.Restart()
             Stall = If(OptClass.iter = IterBefore, Stall + 1, 0)
             If Stall >= MAX_STALL_LOOPS Then
                 LogError("Info: search converged, no new design in " & MAX_STALL_LOOPS & " loops (" & OptClass.iter & " analyses)")
@@ -191,6 +198,10 @@ Public Class MainForm
         End If
         '___________________________________________________________________________________________
         'Control Optimization Parameters
+        If Not IsWholeNumber(RestartBox.Text, 0) Then
+            MsgBox("Restart ETABS every: number of analyses, a non-negative integer (0 = never)")
+            Durdur = True
+        End If
         If Not IsWholeNumber(MemSize.Text, 2) Then
             MsgBox("Memory size must be an integer of at least 2")
             Durdur = True
@@ -230,6 +241,7 @@ Public Class MainForm
         FormInfo.CompositeCode = Math.Max(CompositeCodeBox.SelectedIndex, 0)
         FormInfo.RepairMode = Math.Max(RepairModeBox.SelectedIndex, 0)
         FormInfo.UseCache = ResultCache.Checked
+        FormInfo.RestartEvery = CInt(ToDbl(RestartBox.Text))
         FormInfo.SkipUnusedCases = SkipCases.Checked
         FormInfo.Costs = New MiscellaneousStructures.UnitCosts_ With {.Steel = ToDbl(CostSteelBox.Text), .Rebar = ToDbl(CostRebarBox.Text),
                                                                       .Concrete = ToDbl(CostConcreteBox.Text), .Formwork = ToDbl(CostFormworkBox.Text)}
@@ -268,6 +280,7 @@ Public Class MainForm
         CompositeCodeBox.SelectedIndex = FormInfo.CompositeCode
         RepairModeBox.SelectedIndex = FormInfo.RepairMode
         ResultCache.Checked = FormInfo.UseCache
+        RestartBox.Text = FormInfo.RestartEvery.ToString()
         SkipCases.Checked = FormInfo.SkipUnusedCases
         If FormInfo.Costs.IsSet Then        'old backups: keep the file defaults shown at start
             CostSteelBox.Text = Num(FormInfo.Costs.Steel)
@@ -299,12 +312,10 @@ Public Class MainForm
         HMCR_val.Text = Num(FormInfo.OptInfo.HarmonySearch.HMCR)
         Mutation_Rate.Text = Num(FormInfo.OptInfo.BioGeography.MutationRate)
     End Sub
-    Private Sub Backup_Read()
-        Dim Results As Class_Backup
-        Dim serializer As New XmlSerializer(GetType(Class_Backup))
-        Using reader As New StreamReader("BackUp.xml")
-            Results = CType(serializer.Deserialize(reader), Class_Backup)
-        End Using
+    'Backup of the run whose output file is given on the form (<output>.backup.xml)
+    Private Function Backup_Read(ByRef Message As String) As Boolean
+        Dim Results As Class_Backup = OptimizationClass.Backup_Read(OutputLoc.Text, Message)
+        If Results Is Nothing Then Return False
         OptClass.Memory = Results.Memory
         FormInfo = Results.FormInfo
         OptClass.GlobalBest = Results.GlobalBest
@@ -314,14 +325,16 @@ Public Class MainForm
         OptClass.iter = Results.iter
         OptClass.ILoop = Results.ILoop
         Write_form()
-    End Sub
+        Return True
+    End Function
 
     Private Sub Init(ByRef ret As Integer)
         OptClass = New OptimizationClass()
         Dim FromBackUp As Boolean = BackUp.Checked
+        Dim BackupMessage As String = Nothing
         If FromBackUp Then
-            If Not File.Exists("BackUp.xml") Then : MsgBox("BackUp.xml not found") : ret = -1 : Exit Sub : End If
-            Backup_Read()
+            If String.IsNullOrWhiteSpace(OutputLoc.Text) Then : MsgBox("Load BackUp: enter the output file of the interrupted run") : ret = -1 : Exit Sub : End If
+            If Not Backup_Read(BackupMessage) Then : MsgBox(BackupMessage) : ret = -1 : Exit Sub : End If
             FormInfo_Write()
             If Control() = True Then : ret = -1 : Exit Sub : End If
         Else
@@ -342,11 +355,15 @@ Public Class MainForm
             OptClass.ETABSModel = ETABSModel
             OptClass.Ub = ETABSModel.Ub
             OptClass.Lb = ETABSModel.Lb
+            If BackupMessage IsNot Nothing Then ETABSModel.Errorlogprint(BackupMessage)
+            'result cache on disk: kept by a restarted run, cleared by a new one
+            ETABSModel.AttachCacheFile(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".cache.txt"), FromBackUp)
             StartTimeBox.Text = ETABSModel.FormInfo.TimerInfo.StartTime
             ShowModelInfo()
         End If
         DateBox.Text = Date.Now.ToString("yyyy-MM-dd")
         RunClock = Stopwatch.StartNew()
+        BackupClock = Stopwatch.StartNew()
         IterAtStart = If(FromBackUp, OptClass.iter, 0)
         If FromBackUp Then Exit Sub
 

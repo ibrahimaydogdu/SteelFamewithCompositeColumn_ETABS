@@ -46,7 +46,13 @@ Program seçilen modeli **değiştirmez**:
 **Genel sekme**
 - ETABS dosyası (`*.EDB`) ve çıktı dosyası (`*.xml`) seçilir.
 - *Hide ETABS*: ETABS penceresini gizler.
-- *Load BackUp File*: `BackUp.xml` dosyasından kaldığı yerden devam eder.
+- *Load BackUp File*: kesilen bir koşuya (elektrik kesintisi, çökme, kapatma) kaldığı yerden devam eder.
+  - Kesilen koşunun **çıktı dosyasını** seçin (aynı `*.xml`). Yedek bu dosyanın yanında `<çıktı>.backup.xml` adıyla durur. Form ayarları yedekten okunur.
+  - Program yeni bir çalışma kopyası açar, ilk sınır tasarımını yeniden yapar (525M: yaklaşık 2 dakika) ve arama belleğiyle devam eder.
+  - Sonuç önbelleği (`<çıktı>.cache.txt`) de okunur, kesilen koşuda analiz edilmiş tasarımlar tekrar analiz edilmez.
+  - Yedek her çevrim sonunda ve çevrim içinde 10 dakikada bir yazılır. Kesintide en çok son 10 dakikanın işi kaybolur; yarıda kalan çevrim baştan yapılır.
+  - Yedek önce geçici dosyaya yazılır, sonra eskisinin yerine geçer. Önceki yedek `.backup.xml.bak` olarak saklanır. Son yedek okunamazsa `.bak` kullanılır.
+  - Rastgele sayı üretecinin durumu kaydedilemez: devam eden koşu, kesintisiz koşuyla birebir aynı sonucu vermez (tohum + çevrim numarasıyla sürer).
 - *Check Structure Only*: çıktı XML'indeki en iyi kesitleri düzeltme yapmadan kontrol eder. Sonuç `<çıktı>.check.xml` dosyasına yazılır.
 - Koşu sırasında gösterilenler:
   - *Analyses*: yapılan / en fazla analiz sayısı.
@@ -69,7 +75,7 @@ Program seçilen modeli **değiştirmez**:
   - *Composite code*: kompozit kolon kontrolünün yönetmelik sürümü, `AISC 360-16` veya `AISC 360-22` (varsayılan). Çelik tasarım kodundan bağımsızdır.
     - Gömülü kolonlarda iki sürümün formülleri aynıdır; sonuç değişmez.
     - Farklar dolgulu kutu/boru kesitlerdedir (beton kesme katkısı, narin kesit etkileşimi, burulma). Bu kesitler henüz optimizasyona bağlı değildir.
-    - Eski bir `BackUp.xml` dosyasından devam edilirse `AISC 360-16` kullanılır.
+    - Eski bir yedekten devam edilirse `AISC 360-16` kullanılır.
   - *Create default design combos if model has none*: kombinasyon yoksa otomatik oluşturur.
   - *Drift check combos*: öteleme kontrolünde kullanılacak sonuçlar.
     - "All cases and combos": modal, burkulma ve iç durumlar dışındaki tüm durum ve kombinasyonlar.
@@ -100,6 +106,10 @@ Program seçilen modeli **değiştirmez**:
   - *Reuse results of repeated designs* (varsayılan açık): daha önce değerlendirilmiş bir tasarım tekrar üretilirse ETABS çağrılmaz, saklanan sonuç kullanılır.
     - Bu değerlendirmeler analiz sayısına eklenmez.
     - Art arda 20 çevrimde yeni bir tasarım değerlendirilmezse arama yakınsamış kabul edilir ve koşu biter.
+  - *Restart ETABS every … (0 = off)* (varsayılan 100): ETABS'in bellek kullanımı arama boyunca büyür (525M: 10 analizde 660 → 960 MB). Bu sayıda analizden sonra model kaydedilir, ETABS kapatılır ve yeni bir ETABS kaydedilen modeli açar.
+    - Sonuçlar değişmez: aynı tasarım yeniden başlatmadan önce ve sonra aynı öteleme, çelik ve kompozit oranlarını verir (fark yalnızca 1e-13 düzeyinde çözücü gürültüsü).
+    - Bir yeniden başlatma 525M modelinde yaklaşık 40–47 s sürer (100 analizde bir: yaklaşık %2 ek süre); bellek yaklaşık 580 MB'a iner. Günlük: `Info: ETABS restart …` (bellek, model dosyası, çalışma klasörü boyutu).
+    - `App.config` > `RestartFormat = E2K` ile model `.e2k` dışa aktarımından yeniden oluşturulur. **Önerilmez:** ETABS 22.6'da `.e2k` gömülü kesitlerin çelik profilini / donatısını ve bazı model verilerini taşımıyor; 525M modelinde ötelemeler %15 farklı çıktı. Her `.e2k` yeniden başlatması aynı tasarımın ek bir analiziyle kontrol edilir; fark varsa uyarı yazılır ve koşunun geri kalanında kaydedilen `.EDB` kullanılır.
 - **HS / BBO parametreleri.**
 
 ## 4. Kompozit kolon ayarları (`EncasedSections.xml`)
@@ -134,7 +144,7 @@ Oranlar çelik = 1 alınarak bu fiyatlara bölünerek bulundu.
 - Form açılırken alanlar `EncasedSections.xml` dosyasındaki değerlerle dolar. Koşuda formdaki değerler kullanılır ve `ErrorLog.txt` dosyasına `Info: unit costs (form) …` satırıyla yazılır.
 - Değerler göreli olmalıdır; birimleri ve oranları çalışmanızın fiyatlarından türetin. Örneğin çelik 1 alınırsa diğerleri çeliğe oranla verilir.
 - Değerler negatif olamaz ve en az biri sıfırdan büyük olmalıdır; aksi hâlde form uyarı verir.
-- Değerler yedeğe (`BackUp.xml`) kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
+- Değerler yedeğe (`<çıktı>.backup.xml`) kaydedilir. Eski yedeklerde bu alan yoktur; o durumda `EncasedSections.xml` değerleri kullanılır.
 - Amaç fonksiyonu: çelik modunda yalnızca çelik ağırlığı (kN). Kompozit modda çelik·*Steel* + donatı·*Rebar* + beton hacmi·*Concrete* + kalıp alanı·*Formwork*.
 
 > **Dikkat:** Varsayılanlar yukarıdaki örnek fiyatlardan türetilmiştir. Optimum çözüm bu oranlara doğrudan bağlıdır; çalışmanızın (ülke, yıl) fiyat oranlarını formda girin.
@@ -170,9 +180,10 @@ Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak
 |---|---|
 | Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. `FinalCheck`: en iyi tasarımın düzeltmesiz ve tüm durumlarla final analizi (maliyet, ceza). `FinalConstraints`: belirleyici kısıtlar (oran / sınır). `ETABSCompositeCheck`: ETABS kompozit kolon kontrolü. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
 | `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
-| Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir |
+| Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir. Kesilen koşuların klasörleri 2 gün sonra bir sonraki koşuda silinir. |
 | `ErrorLog.txt` (model klasörü) | Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |
-| `BackUp.xml` (program klasörü) | Her çevrimde güncellenen yedek |
+| `<çıktı>.backup.xml` (+ `.bak`) | Kesilen koşuya devam için yedek (her çevrimde ve 10 dakikada bir) |
+| `<çıktı>.cache.txt` | Sonuç önbelleği; devam eden koşu okur, yeni koşu siler |
 
 ## 6. Sık karşılaşılan durumlar
 | Mesaj (`ErrorLog.txt`) | Neden / çözüm |

@@ -65,6 +65,8 @@ Partial Class MainForm
         Me.Label28 = New System.Windows.Forms.Label()
         Me.RepairModeBox = New System.Windows.Forms.ComboBox()
         Me.ResultCache = New System.Windows.Forms.CheckBox()
+        Me.Label37 = New System.Windows.Forms.Label()
+        Me.RestartBox = New System.Windows.Forms.TextBox()
         Me.Label29 = New System.Windows.Forms.Label()
         Me.BestCostBox = New System.Windows.Forms.TextBox()
         Me.Label30 = New System.Windows.Forms.Label()
@@ -1114,9 +1116,11 @@ Partial Class MainForm
         Me.GroupBox9.Controls.Add(Me.Label28)
         Me.GroupBox9.Controls.Add(Me.RepairModeBox)
         Me.GroupBox9.Controls.Add(Me.ResultCache)
+        Me.GroupBox9.Controls.Add(Me.Label37)
+        Me.GroupBox9.Controls.Add(Me.RestartBox)
         Me.GroupBox9.Location = New System.Drawing.Point(383, 4)
         Me.GroupBox9.Name = "GroupBox9"
-        Me.GroupBox9.Size = New System.Drawing.Size(290, 100)
+        Me.GroupBox9.Size = New System.Drawing.Size(290, 130)
         Me.GroupBox9.TabIndex = 10
         Me.GroupBox9.TabStop = False
         Me.GroupBox9.Text = "Evaluation"
@@ -1151,6 +1155,24 @@ Partial Class MainForm
         Me.ResultCache.TabIndex = 2
         Me.ResultCache.Text = "Reuse results of repeated designs"
         Me.ResultCache.UseVisualStyleBackColor = True
+        '
+        'Label37
+        '
+        Me.Label37.AutoSize = True
+        Me.Label37.Location = New System.Drawing.Point(8, 98)
+        Me.Label37.Name = "Label37"
+        Me.Label37.Size = New System.Drawing.Size(196, 16)
+        Me.Label37.TabIndex = 3
+        Me.Label37.Text = "Restart ETABS every (0 = off)"
+        '
+        'RestartBox
+        '
+        Me.RestartBox.Location = New System.Drawing.Point(210, 95)
+        Me.RestartBox.Name = "RestartBox"
+        Me.RestartBox.Size = New System.Drawing.Size(70, 22)
+        Me.RestartBox.TabIndex = 4
+        Me.RestartBox.Text = "100"
+        Me.RestartBox.TextAlign = System.Windows.Forms.HorizontalAlignment.Right
         '
         'GroupBox10
         '
@@ -1364,6 +1386,8 @@ Partial Class MainForm
     Friend WithEvents Label28 As Label
     Friend WithEvents RepairModeBox As ComboBox
     Friend WithEvents ResultCache As CheckBox
+    Friend WithEvents Label37 As Label
+    Friend WithEvents RestartBox As TextBox
     Friend WithEvents Label29 As Label
     Friend WithEvents BestCostBox As TextBox
     Friend WithEvents Label30 As Label
