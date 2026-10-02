@@ -26,6 +26,13 @@ Değişiklik geçmişi: `DEGISIKLIKLER.md`. Kullanım: `KULLANIM_KILAVUZU.md`. K
 | `Structures.vb` | Veri yapıları (Structure / Enum). Yedek XML'e girdiği için alan adları değiştirilmemelidir. |
 | `EncasedSections.xml` | Kompozit kolon ayarları ve birim maliyetler (`EncasedSettings_`) |
 
+### İş parçacıkları (form ve koşu)
+- Koşu (ETABS çağrıları, arama, final) `MainForm.RunWorker` içinde, arka plan STA iş parçacığında çalışır. ETABS COM nesneleri bu iş parçacığında oluşturulur ve **yalnızca bu iş parçacığından** çağrılır.
+- Form denetimlerine yalnızca form iş parçacığında erişilir. İş parçacığı içinden `UI(...)` (bekleyen `Invoke`) veya `SetPhase` (`BeginInvoke`) kullanılır.
+- Form girdisi (doğrulama, `FormInfo_Read`, yedek okuma) iş parçacığı başlamadan önce `Start_Click` / `PrepareRun` içinde okunur. İş parçacığı içindeki kod form değerlerini değil `FormInfo` alanını kullanır.
+- `ETABS_Class.StatusHandler` durum satırını, `ETABS_Class.MessageHandler` mesaj kutularını form iş parçacığına yönlendirir. Mesaj kutusu için `ETABS_Class.ShowMessage` kullanılmalı, doğrudan `MsgBox` kullanılmamalıdır. Test programlarında bu işleyiciler boştur ve mesaj doğrudan gösterilir.
+- Durdurma (`StopRequested`) değerlendirmeler arasında kontrol edilir (`StopNow`): ara yedek yazılır, ETABS `Close` ile kapatılır.
+
 ## 3. Temel veri modeli
 - **Tasarım değişkeni** `Member_.DesignVariables(v)` = `WSections` listesindeki indeks. `WSections` alana (A) göre artan sıralıdır ve yalnızca `DESIGNATION = W` kesitlerini içerir.
 - `v` (değişken indeksi) ≠ grup indeksi:

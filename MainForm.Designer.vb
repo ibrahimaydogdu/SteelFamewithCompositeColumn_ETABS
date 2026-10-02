@@ -126,6 +126,8 @@ Partial Class MainForm
         Me.MemSize = New System.Windows.Forms.TextBox()
         Me.Label1 = New System.Windows.Forms.Label()
         Me.NotifyIcon1 = New System.Windows.Forms.NotifyIcon(Me.components)
+        Me.StatusLabel = New System.Windows.Forms.Label()
+        Me.UiTimer = New System.Windows.Forms.Timer(Me.components)
         Me.GroupBox1.SuspendLayout()
         Me.GroupBox3.SuspendLayout()
         Me.GroupBox6.SuspendLayout()
@@ -373,6 +375,7 @@ Partial Class MainForm
         Me.TabPage1.Controls.Add(Me.Label31)
         Me.TabPage1.Controls.Add(Me.RemainingBox)
         Me.TabPage1.Controls.Add(Me.ProgressBar1)
+        Me.TabPage1.Controls.Add(Me.StatusLabel)
         Me.TabPage1.Controls.Add(Me.TextBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox1)
         Me.TabPage1.Controls.Add(Me.GroupBox6)
@@ -1082,6 +1085,16 @@ Partial Class MainForm
         '
         'ProgressBar1
         '
+        Me.StatusLabel.Location = New System.Drawing.Point(450, 440)
+        Me.StatusLabel.Name = "StatusLabel"
+        Me.StatusLabel.Size = New System.Drawing.Size(208, 100)
+        Me.StatusLabel.TabIndex = 40
+        Me.StatusLabel.Text = "Ready"
+        '
+        'UiTimer
+        '
+        Me.UiTimer.Interval = 1000
+        '
         Me.ProgressBar1.Location = New System.Drawing.Point(17, 547)
         Me.ProgressBar1.Name = "ProgressBar1"
         Me.ProgressBar1.Size = New System.Drawing.Size(641, 18)
@@ -1388,6 +1401,8 @@ Partial Class MainForm
     Friend WithEvents ResultCache As CheckBox
     Friend WithEvents Label37 As Label
     Friend WithEvents RestartBox As TextBox
+    Friend WithEvents StatusLabel As Label
+    Friend WithEvents UiTimer As Timer
     Friend WithEvents Label29 As Label
     Friend WithEvents BestCostBox As TextBox
     Friend WithEvents Label30 As Label

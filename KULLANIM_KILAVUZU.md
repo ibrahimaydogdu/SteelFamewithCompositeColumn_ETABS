@@ -61,6 +61,11 @@ Program seçilen modeli **değiştirmez**:
   - *Av. analysis (s)*: analiz başına ortalama süre.
   - İlerleme çubuğu.
   - Listeler: en iyi çözümün kesitleri ve iyileşme geçmişi.
+  - **Durum satırı** (ilerleme alanlarının altında): o anki aşama ve aşamada geçen süre. Örnek aşamalar: *Starting ETABS*, *Initial design with the auto select lists* (birkaç dakika sürebilir), *Initial memory: design 3 / 100*, *Search: loop 2, member 17 / 100*, *Restarting ETABS*, *Final analysis and ETABS check*. Süre saniyede bir güncellenir.
+- Koşu arka planda çalışır: ETABS hesap yaparken de form yanıt verir ve alanlar canlı güncellenir. Koşu sırasında ayarlar kilitlenir.
+- Koşu sırasında **Start** düğmesi **Stop** olur. Stop, onaydan sonra koşuyu o anki değerlendirmenin sonunda durdurur: yedek yazılır, ETABS kapatılır. Koşuya *Load BackUp File* ile (aynı çıktı dosyası) devam edilebilir.
+- Koşu sürerken pencere kapatılırsa onay istenir; koşu aynı şekilde durdurulur ve program kapanır.
+- Uzun ETABS aşamalarında (ilk sınır tasarımı, final kontrol) Stop ancak o aşama bitince etkili olur; durum satırında *Stopping after the current evaluation...* yazar.
 
 **Structural Properties sekmesi**
 - *Number of Joint / Members / Group / Section*: modelden okunan sayılar (salt okunur). Group, tasarım değişkeni olan grup sayısıdır.

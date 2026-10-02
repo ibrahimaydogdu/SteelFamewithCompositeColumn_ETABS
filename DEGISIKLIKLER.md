@@ -5,6 +5,37 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 13: Form koşu sırasında güncelleniyor (arka plan iş parçacığı)
+
+**Sorun (kullanıcı bildirimi):** koşu sırasında formda değişiklik görünmüyordu.
+- Neden ETABS değildi. Koşu formun kendi iş parçacığında çalışıyordu ve her ETABS çağrısı (analiz 15–25 s, ilk sınır tasarımı dakikalar) formun yeniden çizilmesini engelliyordu.
+- Windows yaklaşık 5 saniye sonra pencerenin donmuş bir görüntüsünü gösteriyordu.
+
+**Çözüm:**
+- **Arka plan iş parçacığı:**
+  - Koşu (ETABS, arama, final) `RunWorker` içinde, arka plan STA iş parçacığında çalışıyor.
+  - Form girdisi başlamadan önce okunuyor (`PrepareRun`); form güncellemeleri `UI(...)` / `SetPhase` ile yapılıyor.
+  - ETABS sınıfının mesaj kutuları `ETABS_Class.MessageHandler` ile form iş parçacığında gösteriliyor.
+- **Durum satırı:**
+  - Formda o anki aşama ve aşamada geçen süre gösteriliyor; saniyede bir güncelleniyor. Örnek aşamalar: ETABS açılışı, model okuma, ilk sınır tasarımı, başlangıç belleği, arama (döngü / üye), yeniden başlatma, final ve ETABS kompozit tasarımı.
+  - *Elapsed* alanı da saniyede bir güncelleniyor.
+- **Start / Stop:**
+  - Koşu sırasında düğme Stop'a dönüşüyor ve ayarlar kilitleniyor.
+  - Stop onaydan sonra o anki değerlendirmenin sonunda durduruyor: ara yedek yazılıyor, ETABS kapatılıyor ve "Load BackUp ile devam" mesajı gösteriliyor.
+  - Koşu sürerken pencere kapatılırsa onay isteniyor; koşu aynı şekilde durduruluyor ve program kapanıyor.
+- **Testte bulunan hata ve düzeltmesi:**
+  - Başlangıç belleği sırasında durdurulan bir koşunun yedeğinde bellek eksik ve HS vektörleri (`ParVec`) boştu; devamda `IndexOutOfRangeException` oluştu.
+  - Artık devam sırasında eksik bellek tamamlanıyor ve algoritma vektörleri eksikse ya da boyu yanlışsa yeniden oluşturuluyor (`CompleteRestoredMemory`).
+  - Yeni (yedeksiz) bir koşu, aynı çıktıya ait eski yedeği siliyor; önbellek zaten siliniyordu.
+
+**Testler (formdan, 525M kopyası):**
+- Form koşu boyunca güncellendi. 45 saniyede bir alınan ekran görüntülerinde durum satırı, analiz sayısı, en iyi maliyet ve süreler canlı değişti.
+- 8. analizde Stop'a basıldı. Koşu 10. analizde durdu ve mesaj gösterildi; ardından düğme Start'a döndü ve ayarlar açıldı.
+- Yarım kalmış yedekten devam eden koşu belleği ve vektörleri tamamladı, final ETABS doğrulamasıyla bitti (en iyi maliyet 7054,11).
+- Test22 tüm testleri geçti; MSBuild uyarısız.
+
+---
+
 ## 2026-10-02 — Aşama 12: E2K ile yeniden açma kaldırıldı
 
 - Kullanıcı isteğiyle `RestartFormat = E2K` seçeneği ve ilgili kod kaldırıldı:

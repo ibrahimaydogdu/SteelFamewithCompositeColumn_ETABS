@@ -13,6 +13,76 @@ Public Class MainForm
     'progress display: time and analysis count since the ETABS model is ready (backup: since the restart)
     Private RunClock As Stopwatch
     Private IterAtStart As Integer
+    'The run (ETABS calls) works on a background thread: the form stays responsive and shows the progress. Controls
+    'are only accessed on the form thread (UI / UIAsync). Stop (button or closing the form) ends the run after the
+    'current evaluation: backup written, ETABS closed.
+    Private Worker As Threading.Thread
+    Private StopRequested As Boolean
+    Private CloseAfterRun As Boolean
+    Private PhaseText As String = "Ready"
+    Private PhaseClock As Stopwatch
+    Private Const STOP_TEXT As String = "Stop"
+    Private StartText As String
+
+    Public ReadOnly Property IsRunning As Boolean
+        Get
+            Return Worker IsNot Nothing AndAlso Worker.IsAlive
+        End Get
+    End Property
+
+    'action on the form thread; the worker waits until it is done
+    Private Sub UI(ByVal a As Action)
+        If InvokeRequired Then Invoke(a) Else a()
+    End Sub
+
+    'current phase of the run (status line, updated every second with the time spent in the phase)
+    Private Sub SetPhase(ByVal Text As String)
+        Dim a As Action = Sub()
+                              PhaseText = Text
+                              PhaseClock = Stopwatch.StartNew()
+                              ShowStatus()
+                          End Sub
+        If InvokeRequired Then BeginInvoke(a) Else a()
+    End Sub
+
+    Private Sub ShowStatus()
+        Dim t As String = If(PhaseClock IsNot Nothing AndAlso IsRunning, " (" & FormatSpan(PhaseClock.Elapsed) & ")", "")
+        StatusLabel.Text = PhaseText & t & If(StopRequested AndAlso IsRunning, Environment.NewLine & "Stopping after the current evaluation...", "")
+    End Sub
+
+    Private Sub UiTimer_Tick(sender As Object, e As EventArgs) Handles UiTimer.Tick
+        ShowStatus()
+        If RunClock IsNot Nothing AndAlso IsRunning Then ElapsedBox.Text = FormatSpan(RunClock.Elapsed)
+    End Sub
+
+    'input controls are locked during a run (progress fields and lists stay readable)
+    Private Sub SetInputsEnabled(ByVal Enabled As Boolean)
+        Dim Display As New HashSet(Of Windows.Forms.Control) From {TextBox1, BestCostBox, ElapsedBox, RemainingBox, DateBox, StartTimeBox, FinishTimeBox, AverageTimeBox,
+                                                    NofJoint, nofmember, nofgroup, nofsection1, start}
+        Dim Walk As Action(Of Windows.Forms.Control) = Nothing
+        Walk = Sub(c As Windows.Forms.Control)
+                   For Each ch As Windows.Forms.Control In c.Controls
+                       If TypeOf ch Is TextBox OrElse TypeOf ch Is ComboBox OrElse TypeOf ch Is CheckBox OrElse TypeOf ch Is Button Then
+                           If Not Display.Contains(ch) Then ch.Enabled = Enabled
+                       Else
+                           Walk(ch)
+                       End If
+                   Next
+               End Sub
+        Walk(Me)
+    End Sub
+
+    Private Sub MainForm_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        If Not IsRunning Then Return
+        e.Cancel = True
+        If StopRequested Then Return
+        If MsgBox("A run is in progress. Stop it after the current evaluation and close the program?" & Environment.NewLine &
+                  "The backup is kept: the run can be continued with 'Load BackUp File'.", MsgBoxStyle.YesNo Or MsgBoxStyle.Question) = MsgBoxResult.Yes Then
+            StopRequested = True
+            CloseAfterRun = True
+            ShowStatus()
+        End If
+    End Sub
 
     Private Sub MainForm_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If DriftCombos.SelectedIndex < 0 Then DriftCombos.SelectedIndex = MiscellaneousStructures.DriftComboMode_.LateralCasesOnly
@@ -33,32 +103,95 @@ Public Class MainForm
         ETABS_Class.SetSeed(Seed)
     End Sub
     Private Sub Start_Click(sender As Object, e As EventArgs) Handles start.Click
+        If IsRunning Then
+            'Stop
+            If StopRequested Then Return
+            If MsgBox("Stop the run after the current evaluation?" & Environment.NewLine &
+                      "The backup is kept: the run can be continued with 'Load BackUp File'.", MsgBoxStyle.YesNo Or MsgBoxStyle.Question) = MsgBoxResult.Yes Then
+                StopRequested = True
+                ShowStatus()
+            End If
+            Return
+        End If
+        'form input on the form thread, the run on the worker
+        Dim Check As Boolean = CheckStructure.Checked
+        Dim ret As Integer = 0
+        If Check Then
+            If Control() = True Then Return
+            FormInfo_Read()
+        Else
+            PrepareRun(ret)
+            If ret <> 0 Then Return
+        End If
+        StopRequested = False
+        CloseAfterRun = False
+        ETABSModel = Nothing
+        ETABS_Class.MessageHandler = Sub(Text As String, Style As MsgBoxStyle) UI(Sub() MsgBox(Text, Style))
+        ETABS_Class.StatusHandler = AddressOf SetPhase
+        StartText = start.Text
+        start.Text = STOP_TEXT
+        SetInputsEnabled(False)
+        UiTimer.Start()
+        SetPhase(If(Check, "Check Structure: starting ETABS", "Starting ETABS"))
+        Worker = New Threading.Thread(Sub() RunWorker(Check)) With {.IsBackground = True, .Name = "Optimization"}
+        Worker.SetApartmentState(Threading.ApartmentState.STA)
+        Worker.Start()
+    End Sub
+
+    Private Sub RunWorker(ByVal Check As Boolean)
         Try
-            RunAll()
+            If Check Then
+                Dim ret As Integer = 0
+                Check_Structure(ret)
+                If ret <> 0 Then
+                    LogError("Error occurred in Check Structure")
+                    CloseETABS(ret)
+                End If
+            Else
+                RunAll()
+            End If
         Catch ex As Exception
             'an unexpected exception must not leave ETABS and the working folder behind
             LogError("Unhandled exception: " & ex.ToString())
             CloseETABS(-1)
+        Finally
+            UI(AddressOf RunFinished)
         End Try
     End Sub
 
+    Private Sub RunFinished()
+        Worker = Nothing
+        UiTimer.Stop()
+        SetInputsEnabled(True)
+        start.Text = If(StartText, "Start")
+        PhaseText = If(StopRequested, "Stopped", "Finished") & " " & Date.Now.ToString("HH:mm:ss")
+        PhaseClock = Nothing
+        ShowStatus()
+        If CloseAfterRun Then Close()
+    End Sub
+
+    'stop requested (button / closing the form): backup, ETABS closed with a message
+    Private Function StopNow() As Boolean
+        If Not StopRequested Then Return False
+        If OptClass IsNot Nothing AndAlso OptClass.Memory IsNot Nothing AndAlso OptClass.Memory.Count > 0 Then OptClass.Backup_Write(midLoop:=True)
+        LogError("Info: run stopped by the user after " & If(OptClass Is Nothing, 0, OptClass.iter) & " analyses")
+        If ETABSModel IsNot Nothing Then
+            If CloseAfterRun Then ETABSModel.Quiet = True      'the program closes: no message
+            ETABSModel.Close(0, "Run stopped. Continue it with 'Load BackUp File' (same output file).")
+        End If
+        Return True
+    End Function
+
     Private Sub RunAll()
         Dim ret As Integer = 0
-        If CheckStructure.Checked = True Then
-            Check_Structure(ret)
-            If ret <> 0 Then
-                LogError("Error occurred in Check Structure")
-                CloseETABS(ret)
-            End If
-            Exit Sub
-        End If
         Init(ret)
         If ret <> 0 Then
             LogError("Initialisation failed (see the previous messages)")
             CloseETABS(ret)
             Exit Sub
         End If
-        Me.Text = AppTitle & "  -  " & FormInfo.OptInfo.OptimizationMethod.ToString() & "  (seed " & FormInfo.Seed & ")"
+        If StopNow() Then Exit Sub
+        UI(Sub() Me.Text = AppTitle & "  -  " & FormInfo.OptInfo.OptimizationMethod.ToString() & "  (seed " & FormInfo.Seed & ")")
         If ETABSModel IsNot Nothing Then ETABSModel.Errorlogprint("Info: run started, method " & FormInfo.OptInfo.OptimizationMethod.ToString() & ", seed " & FormInfo.Seed)
         'with the result cache a converged search may produce no new design: stop after MAX_STALL_LOOPS such loops
         Dim Stall As Integer = 0
@@ -68,12 +201,14 @@ Public Class MainForm
             OptClass.Memory = OptClass.Memory.OrderBy(Function(c) c.PenalizedCost).ToList()
             For Imem = 0 To FormInfo.OptInfo.MemorySize - 1
                 ID_mem = Imem
+                SetPhase("Search: loop " & OptClass.ILoop & ", member " & (Imem + 1) & " / " & FormInfo.OptInfo.MemorySize)
                 Opt_Main(ret)
                 If ret <> 0 Then
                     LogError("Error occurred in Opt_Main")
                     CloseETABS(ret)
                     Exit Sub
                 End If
+                If StopNow() Then Exit Sub
                 If BackupClock.Elapsed.TotalMinutes >= BACKUP_INTERVAL_MINUTES Then
                     OptClass.Backup_Write(midLoop:=True)
                     BackupClock.Restart()
@@ -96,12 +231,13 @@ Public Class MainForm
                 Exit Do
             End If
         Loop
+        SetPhase("Final analysis and ETABS check of the best design")
         OptClass.Opt_Finalize()
-        FinishTimeBox.Text = Date.Now.ToString("HH:mm:ss")
+        UI(Sub() FinishTimeBox.Text = Date.Now.ToString("HH:mm:ss"))
     End Sub
     Private Sub Opt_Main(ByRef ret As Integer)
         OptClass.Main(ID_mem, ret)
-        Write_form()
+        UI(AddressOf Write_form)
     End Sub
 
     'ETABS class may not exist yet (validation error, math test mode)
@@ -109,7 +245,7 @@ Public Class MainForm
         If ETABSModel IsNot Nothing Then
             ETABSModel.Errorlogprint(msg)
         Else
-            MsgBox(msg)
+            UI(Sub() MsgBox(msg))
         End If
     End Sub
     Private Sub CloseETABS(ByVal ret As Integer)
@@ -328,10 +464,14 @@ Public Class MainForm
         Return True
     End Function
 
-    Private Sub Init(ByRef ret As Integer)
+    Private FromBackUp As Boolean
+    Private BackupMessage As String
+
+    'form thread: input check, backup, form values -> FormInfo
+    Private Sub PrepareRun(ByRef ret As Integer)
         OptClass = New OptimizationClass()
-        Dim FromBackUp As Boolean = BackUp.Checked
-        Dim BackupMessage As String = Nothing
+        FromBackUp = BackUp.Checked
+        BackupMessage = Nothing
         If FromBackUp Then
             If String.IsNullOrWhiteSpace(OutputLoc.Text) Then : MsgBox("Load BackUp: enter the output file of the interrupted run") : ret = -1 : Exit Sub : End If
             If Not Backup_Read(BackupMessage) Then : MsgBox(BackupMessage) : ret = -1 : Exit Sub : End If
@@ -341,13 +481,16 @@ Public Class MainForm
             If Control() = True Then : ret = -1 : Exit Sub : End If
             FormInfo_Read()
         End If
+        StartTimeBox.Text = FormInfo.TimerInfo.StartTime
+    End Sub
 
+    'worker: ETABS model, initial memory
+    Private Sub Init(ByRef ret As Integer)
         'backup: the generator state cannot be restored, continue with a seed derived from the loop number
         SetRandomSeed(If(FromBackUp, FormInfo.Seed + OptClass.ILoop, FormInfo.Seed))
-        StartTimeBox.Text = FormInfo.TimerInfo.StartTime
         OptClass.FormInfo = FormInfo
         OptClass.FileList = FormInfo.FileList
-        If TestwithMath.Checked = True Then
+        If FormInfo.OptInfo.TestWithMath Then
             OptClass.Math_Init()
         Else
             ETABSModel = New ETABS_Class(FormInfo, ret)
@@ -358,14 +501,31 @@ Public Class MainForm
             If BackupMessage IsNot Nothing Then ETABSModel.Errorlogprint(BackupMessage)
             'result cache on disk: kept by a restarted run, cleared by a new one
             ETABSModel.AttachCacheFile(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".cache.txt"), FromBackUp)
-            StartTimeBox.Text = ETABSModel.FormInfo.TimerInfo.StartTime
-            ShowModelInfo()
+            UI(Sub()
+                   StartTimeBox.Text = ETABSModel.FormInfo.TimerInfo.StartTime
+                   ShowModelInfo()
+               End Sub)
         End If
-        DateBox.Text = Date.Now.ToString("yyyy-MM-dd")
+        UI(Sub() DateBox.Text = Date.Now.ToString("yyyy-MM-dd"))
         RunClock = Stopwatch.StartNew()
         BackupClock = Stopwatch.StartNew()
         IterAtStart = If(FromBackUp, OptClass.iter, 0)
-        If FromBackUp Then Exit Sub
+        If FromBackUp Then
+            CompleteRestoredMemory(ret)
+            Exit Sub
+        End If
+        'a new run: the backup of an earlier run with this output file is no longer valid (the cache is cleared too)
+        Dim OldBackup As String = OptimizationClass.BackupPath(FormInfo.FileList.OutputFile)
+        For Each f In {OldBackup, OldBackup & ".bak"}
+            If File.Exists(f) Then
+                Try
+                    File.Delete(f)
+                    LogError("Info: backup of an earlier run removed: " & f)
+                Catch ex As Exception
+                    LogError("Warning: backup of an earlier run not removed: " & f & " (" & ex.Message & ")")
+                End Try
+            End If
+        Next
 
         OptClass.Memory = New List(Of OptimizationStructure_.Member_)
         OptClass.BestValue = Double.PositiveInfinity
@@ -374,16 +534,46 @@ Public Class MainForm
         ReDim OptClass.GlobalBest.DesignVariables(OptClass.Ub.Count - 1)
         OptClass.iter = 0
         For i = 0 To FormInfo.OptInfo.MemorySize - 1
+            SetPhase("Initial memory: design " & (i + 1) & " / " & FormInfo.OptInfo.MemorySize)
             Dim Member As New OptimizationStructure_.Member_
             OptClass.RandomGenerate(Member, 0, ret)
             If ret <> 0 Then : LogError("Error occurred in RandomGenerate") : Exit Sub : End If
             OptClass.Memory.Add(Member)
-            Write_form()
+            UI(AddressOf Write_form)
+            If StopRequested Then Exit For
         Next i
         OptClass.ILoop = 0
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.HarmornySearch Then OptClass.Init_HarmonySearch()
         If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO Then OptClass.Init_BioGeographyBased()
     End Sub
+    'Restored run: a backup written while the initial memory was generated (stop, power failure) has fewer members and
+    'no algorithm vectors yet: the memory is completed and the vectors are created
+    Private Sub CompleteRestoredMemory(ByRef ret As Integer)
+        If OptClass.GlobalBest.DesignVariables Is Nothing OrElse OptClass.GlobalBest.DesignVariables.Length <> OptClass.Ub.Length Then
+            ReDim OptClass.GlobalBest.DesignVariables(OptClass.Ub.Length - 1)
+            OptClass.GlobalBest.PenalizedCost = Double.PositiveInfinity
+        End If
+        If OptClass.Histories Is Nothing Then OptClass.Histories = New List(Of OptimizationStructure_.History_)
+        Dim Missing As Integer = FormInfo.OptInfo.MemorySize - OptClass.Memory.Count
+        If Missing > 0 Then LogError("Info: backup written during the initial memory: " & Missing & " designs generated now")
+        While OptClass.Memory.Count < FormInfo.OptInfo.MemorySize
+            SetPhase("Initial memory: design " & (OptClass.Memory.Count + 1) & " / " & FormInfo.OptInfo.MemorySize)
+            Dim Member As New OptimizationStructure_.Member_
+            OptClass.RandomGenerate(Member, 0, ret)
+            If ret <> 0 Then : LogError("Error occurred in RandomGenerate") : Exit Sub : End If
+            OptClass.Memory.Add(Member)
+            UI(AddressOf Write_form)
+            If StopRequested Then Exit Sub
+        End While
+        With FormInfo.OptInfo
+            If .OptimizationMethod = OptimizationStructure_.OptMethod_.HarmornySearch AndAlso
+               (.HarmonySearch.ParVec Is Nothing OrElse .HarmonySearch.ParVec.Length <> OptClass.Memory.Count OrElse
+                .HarmonySearch.HMCRVec Is Nothing OrElse .HarmonySearch.HMCRVec.Length <> OptClass.Memory.Count) Then OptClass.Init_HarmonySearch()
+            If .OptimizationMethod = OptimizationStructure_.OptMethod_.BioGBasedO AndAlso
+               (.BioGeography.Mu Is Nothing OrElse .BioGeography.Mu.Length <> OptClass.Memory.Count) Then OptClass.Init_BioGeographyBased()
+        End With
+    End Sub
+
     'Model size on the Structural Properties tab
     Private Sub ShowModelInfo()
         NofJoint.Text = ETABSModel.Points.Length.ToString()
@@ -426,13 +616,13 @@ Public Class MainForm
     End Sub
 
     'Checks the sections of an optimization output file (GlobalBestPrint) without modifying them
+    'worker (form input read by Start_Click)
     Private Sub Check_Structure(ByRef ret As Integer)
-        If Control() = True Then : ret = -1 : Exit Sub : End If
-        FormInfo_Read()
         SetRandomSeed(FormInfo.Seed)
         ETABSModel = New ETABS_Class(FormInfo, ret)
         If ret <> 0 Then : LogError("Error occurred in ETABS_Class") : Exit Sub : End If
-        ShowModelInfo()
+        UI(AddressOf ShowModelInfo)
+        SetPhase("Check Structure: analysis and design of the sections of the output file")
         Dim Sect_ID() As Integer = Read_SectionID(ret)
         If ret <> 0 Then : LogError("Error occurred in Read_SectionID") : Exit Sub : End If
         ret = ETABSModel.SetAndAnalyze(Sect_ID, False)
@@ -447,7 +637,7 @@ Public Class MainForm
         ETABSModel.ETABS_print.AnalysisFailed = ETABSModel.AnalysisFailed
         ETABSModel.Errorlogprint("Info: checked design: cost " & Num(ETABSModel.ETABS_print.Cost) & ", penalty " & Num(Penalty) & If(ETABSModel.AnalysisFailed, " (analysis not finished)", ""))
         Dim serializer As New XmlSerializer(GetType(ETABS_Print))
-        Using writer As New StreamWriter(Path.ChangeExtension(OutputLoc.Text, ".check.xml"))
+        Using writer As New StreamWriter(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".check.xml"))
             serializer.Serialize(writer, ETABSModel.ETABS_print)
         End Using
         Dim ETABSMax As Double = If(ETABSModel.ETABSRatioByVar.Count > 0, ETABSModel.ETABSRatioByVar.Values.Max(), 0)
@@ -458,11 +648,12 @@ Public Class MainForm
     'Sections of an output file, matched by group name ("<GroupName>: <SectionName> [composite info]")
     Private Function Read_SectionID(ByRef ret As Integer) As Integer()
         Dim Sect_ID(ETABSModel.SteelFrameDesignGroupIDs.Count - 1) As Integer
-        If Not File.Exists(OutputLoc.Text) Then : ETABSModel.Errorlogprint("Output file to check not found: " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
+        Dim OutputFile As String = FormInfo.FileList.OutputFile
+        If Not File.Exists(OutputFile) Then : ETABSModel.Errorlogprint("Output file to check not found: " & OutputFile) : ret = -1 : Return Sect_ID : End If
         Dim xmldoc As New XmlDocument()
-        xmldoc.Load(OutputLoc.Text)
+        xmldoc.Load(OutputFile)
         Dim xmlnode As XmlNodeList = xmldoc.GetElementsByTagName("GlobalBestPrint")
-        If xmlnode.Count = 0 Then : ETABSModel.Errorlogprint("No GlobalBestPrint in " & OutputLoc.Text) : ret = -1 : Return Sect_ID : End If
+        If xmlnode.Count = 0 Then : ETABSModel.Errorlogprint("No GlobalBestPrint in " & OutputFile) : ret = -1 : Return Sect_ID : End If
         Dim ByGroup As New Dictionary(Of String, String)
         For Each item As XmlNode In xmlnode(0).ChildNodes
             Dim parts() As String = item.InnerText.Split(":".ToCharArray(), 2)
@@ -471,7 +662,7 @@ Public Class MainForm
         For j = 0 To ETABSModel.SteelFrameDesignGroupIDs.Count - 1
             Dim G As String = ETABSModel.Groups(ETABSModel.SteelFrameDesignGroupIDs(j)).GroupName
             Dim Sname As String = Nothing
-            If Not ByGroup.TryGetValue(G, Sname) Then : ETABSModel.Errorlogprint("Group " & G & " not found in " & OutputLoc.Text) : ret = -1 : Continue For : End If
+            If Not ByGroup.TryGetValue(G, Sname) Then : ETABSModel.Errorlogprint("Group " & G & " not found in " & OutputFile) : ret = -1 : Continue For : End If
             Sect_ID(j) = ETABSModel.WSections.FindIndex(Function(c) c.SectionName = Sname)
             If Sect_ID(j) < 0 Then : ETABSModel.Errorlogprint("Section not found in library: " & Sname) : ret = -1 : End If
         Next j

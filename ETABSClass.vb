@@ -104,6 +104,17 @@ Public Class ETABS_Class
     End Function
 
 
+    'Set by the form: status line (phase of the run) and message boxes on the form thread (the run works on a
+    'background thread). Without a handler (test programs) messages are shown directly.
+    Public Shared StatusHandler As Action(Of String)
+    Public Shared MessageHandler As Action(Of String, MsgBoxStyle)
+    Public Shared Sub Report(ByVal Text As String)
+        StatusHandler?.Invoke(Text)
+    End Sub
+    Public Shared Sub ShowMessage(ByVal Text As String, Optional ByVal Style As MsgBoxStyle = MsgBoxStyle.OkOnly)
+        If MessageHandler IsNot Nothing Then MessageHandler(Text, Style) Else MsgBox(Text, Style)
+    End Sub
+
     Public Sub New(ByRef FormInfo_ As MiscellaneousStructures.FormInfo_, ByRef ret As Integer)
         ETABS_print = New ETABS_Print
         FormInfo = FormInfo_
@@ -118,11 +129,11 @@ Public Class ETABS_Class
         If Quiet Then Return
 
         If ret = 0 AndAlso Warning IsNot Nothing Then
-            MsgBox(Warning, MsgBoxStyle.Exclamation)
+            ShowMessage(Warning, MsgBoxStyle.Exclamation)
         ElseIf ret = 0 Then
-            MsgBox("API script completed successfully.")
+            ShowMessage("API script completed successfully.")
         Else
-            MsgBox("API script FAILED to complete.")
+            ShowMessage("API script FAILED to complete.")
         End If
     End Sub
 
@@ -140,6 +151,7 @@ Public Class ETABS_Class
             ret = InitializeCompositeSettings()
             If (ret <> 0) Then : Errorlogprint("Problem occurred on Function: InitializeCompositeSettings") : Return ret : End If
         End If
+        Report("Reading the model (joints, frames, stories, groups, load cases)")
         ret = InitializePoints()
         If (ret <> 0) Then : Errorlogprint("Problem occurred on Function: InitializePoints") : Return ret : End If
         ret = InitializeFrames()
@@ -184,6 +196,7 @@ Public Class ETABS_Class
         '_____________________________________________________
         'Upper Lower boundary Def
         If FormInfo.CheckStructure = False Then
+            Report("Initial design with the auto select lists (search bounds); ETABS iterates analysis and design, this can take several minutes")
             ret = Initialize_UBLB()
             If (ret <> 0) Then : Errorlogprint("Problem occurred on Function: Initialize_UBLB") : Return ret : End If
         End If
@@ -312,6 +325,7 @@ Public Class ETABS_Class
         End If
 
         ETABSProgram = ProgramPath
+        Report("Starting ETABS")
         ret = StartInstance()
         If (ret <> 0) Then Return ret
         Dim Ver As String = Nothing, VerNum As Double
@@ -319,6 +333,7 @@ Public Class ETABS_Class
 
         ret = CreateWorkCopy(SapFileName)
         If (ret <> 0) Then : Errorlogprint("Problem occurred on :CreateWorkCopy") : Return ret : End If
+        Report("Opening the working copy of the model")
         ret = SapModel.File.OpenFile(WorkFile)
         If (ret <> 0) Then : Errorlogprint("Problem occurred on :OpenFile " & WorkFile) : Return ret : End If
 
@@ -436,6 +451,7 @@ Public Class ETABS_Class
     End Sub
 
     Public Function RestartETABS() As Integer
+        Report("Restarting ETABS (memory)")
         Dim clk = Clock("RestartETABS") : clk.Start()
         Try
             Dim ret As Integer
@@ -2296,6 +2312,7 @@ Public Class ETABS_Class
         Dim ret As Integer
         If Not Groups.Any(Function(g) g.IsComposite) Then Return 0
         InvalidateAnalysis()
+        Report("ETABS composite column design of the composite columns (encased sections)")
         '1. the General sections of the current design -> encased sections with the same names
         Dim CompVars As List(Of Integer) = Enumerable.Range(0, SteelFrameDesignGroupIDs.Count).Where(Function(v) Groups(SteelFrameDesignGroupIDs(v)).IsComposite).ToList()
         Dim clkS = Clock("CreateSections") : clkS.Start()

@@ -407,7 +407,7 @@ Public Class OptimizationClass
         Dim FinalFails As Boolean = False     'final analysis or ETABS composite check not satisfied
         If GlobalBest.PenalizedCost = Double.PositiveInfinity Then
             LogError("Warning: no feasible design found")
-            If ETABSModel Is Nothing OrElse Not ETABSModel.Quiet Then MsgBox("No feasible design was found.")
+            If ETABSModel Is Nothing OrElse Not ETABSModel.Quiet Then ETABS_Class.ShowMessage("No feasible design was found.")
         ElseIf FormInfo.OptInfo.TestWithMath = True Then
             Math_Evaluate(GlobalBest)
         Else
@@ -436,6 +436,7 @@ Public Class OptimizationClass
                     If VerifyRet <> 0 Then Exit For
                     Dim Vars() As Integer = CType(Final.DesignVariables.Clone(), Integer())
                     If ETABSModel.StepUpETABSFailures(Vars) = 0 Then Exit For
+                    ETABS_Class.Report("ETABS guard step " & Guard & ": larger sections for the columns failing the ETABS composite design")
                     Dim Guarded As OptimizationStructure_.Member_ = Final
                     Guarded.DesignVariables = Vars
                     ETABSModel.Evaluate(Guarded, iter, ret, applyRepair:=False)
