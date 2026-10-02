@@ -108,14 +108,17 @@ Public Class ETABS_Class
         FormInfo = FormInfo_
         ret = Initialize()
     End Sub
-    Public Sub Close(ret As Integer)
+    'Warning: shown instead of the success message (final design does not satisfy all checks)
+    Public Sub Close(ret As Integer, Optional ByVal Warning As String = Nothing)
         Errorlogprint("Info: run time " & Date.Now.Subtract(FormInfo.TimerInfo.startDate).ToString("d\.hh\:mm\:ss") & ", " & Iter & " analyses")
         Errorlogprint("Info: timing " & TimingReport())
 
         Shutdown()
         If Quiet Then Return
 
-        If ret = 0 Then
+        If ret = 0 AndAlso Warning IsNot Nothing Then
+            MsgBox(Warning, MsgBoxStyle.Exclamation)
+        ElseIf ret = 0 Then
             MsgBox("API script completed successfully.")
         Else
             MsgBox("API script FAILED to complete.")

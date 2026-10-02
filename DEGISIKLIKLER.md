@@ -45,6 +45,9 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ### Final mesajı
 - Final analizinde ceza varsa ya da ETABS kompozit kontrolü aşılıyorsa son satır artık `Warning: optimization completed, but the final design does not satisfy all checks` oluyor. Önceden her durumda "completed successfully" yazıyordu.
+- Formdaki son mesaj kutusu da aynı durumda "API script completed successfully." yerine uyarı gösteriyor. *Check Structure* modunda ceza > 0, ETABS kompozit oranı > 1 ya da analiz tamamlanmamışsa uyarıda ceza ve en büyük ETABS oranı yazılıyor.
+- **Formdan uçtan uca test** (525M kopyası, 30 analiz, varsayılan ayarlar): en iyi maliyet 7519. ETABS PMM oranları 0,34–0,86, iç oranlar 0,32–0,83. Önerilen `CompositeStrengthFactor` 1,11.
+- **Visual Studio 18 MSBuild:** `.vbproj` hatasız ve uyarısız derleniyor. Çıktıda ETABS 22 `ETABSv1.dll`, `EncasedSections.xml` ve `FrameSap2000.exe.config` var.
 
 ### Testler (525M kopyası, ETABS 22.6)
 - **Derleme:** temiz. **Test22:** tüm testler geçti. **Form ekranları:** doğru, maliyet varsayılanları 1 / 0,5 / 0,6 / 0,15.

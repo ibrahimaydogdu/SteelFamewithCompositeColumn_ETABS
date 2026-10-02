@@ -463,7 +463,7 @@ Public Class OptimizationClass
             Yazdir_Final()
             If ret = 0 Then LogError(If(FinalFails, "Warning: optimization completed, but the final design does not satisfy all checks (see the warnings above)", "Info: optimization completed successfully"))
         End If
-        If ETABSModel IsNot Nothing Then ETABSModel.Close(ret)
+        If ETABSModel IsNot Nothing Then ETABSModel.Close(ret, If(FinalFails, "Optimization completed, but the final design does not satisfy all checks. See the warnings in ErrorLog.txt.", Nothing))
     End Sub
 
     Public Sub Backup_Write()

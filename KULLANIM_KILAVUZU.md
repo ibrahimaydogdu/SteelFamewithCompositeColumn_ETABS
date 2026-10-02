@@ -160,6 +160,7 @@ Kolonun oranı, tüm üyelerde ve kombinasyonlarda bu kontrollerin en büyüğü
 - **ETABS koruması:** ETABS oranı 1'i aşan kompozit grup otomatik olarak bir üst kesite çıkarılır. Tasarım yeniden analiz edilip ETABS ile yeniden doğrulanır (en fazla 3 adım).
   - Günlükte `Info: ETABS guard …` satırları görünür. `FinalCheck` ve `_best.EDB` korunmuş tasarımı içerir.
   - Aşan grup üst sınırdaysa uyarı yazılır.
+  - Final tasarım (veya *Check Structure* ile kontrol edilen tasarım) tüm kontrolleri sağlamıyorsa koşu sonundaki mesaj kutusu "completed successfully" yerine uyarı gösterir.
 - **Kalibrasyon:** günlükteki `ETABS / internal composite strength ratio (max)` satırı önerilen `CompositeStrengthFactor` değerini verir. Bu değeri `App.config` dosyasına yazarsanız arama ETABS ile uyumlu, güvenli tarafta yürür.
 
 Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak görünür. Kesit notlarında beton ölçüsü ve donatı yazar. Rijitlikler dönüştürülmüş (EI_eff) değerlerdir, ağırlık gerçek değerdir. Bu kolonlar ETABS'te "No Design" olarak işaretlidir; tasarım sonuçları ETABS'te değil, programın çıktılarında yer alır.

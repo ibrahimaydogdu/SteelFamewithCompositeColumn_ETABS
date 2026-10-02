@@ -433,7 +433,10 @@ Public Class MainForm
         Using writer As New StreamWriter(Path.ChangeExtension(OutputLoc.Text, ".check.xml"))
             serializer.Serialize(writer, ETABSModel.ETABS_print)
         End Using
-        ETABSModel.Close(ret)
+        Dim ETABSMax As Double = If(ETABSModel.ETABSRatioByVar.Count > 0, ETABSModel.ETABSRatioByVar.Values.Max(), 0)
+        Dim Fails As Boolean = Penalty > 0 OrElse ETABSMax > 1 OrElse ETABSModel.AnalysisFailed
+        ETABSModel.Close(ret, If(Fails, "The checked design does not satisfy all checks (penalty " & Num(Penalty) & ", ETABS composite ratio max " & Num(ETABSMax) &
+                                       "). See ErrorLog.txt and the .check.xml file.", Nothing))
     End Sub
     'Sections of an output file, matched by group name ("<GroupName>: <SectionName> [composite info]")
     Private Function Read_SectionID(ByRef ret As Integer) As Integer()
