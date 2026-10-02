@@ -28,6 +28,7 @@ Partial Class MainForm
         Me.ModelFileBox = New System.Windows.Forms.TextBox()
         Me.GroupBox3 = New System.Windows.Forms.GroupBox()
         Me.loadoutput = New System.Windows.Forms.Button()
+        Me.ExcelButton = New System.Windows.Forms.Button()
         Me.OutputLoc = New System.Windows.Forms.TextBox()
         Me.GroupBox6 = New System.Windows.Forms.GroupBox()
         Me.CheckStructure = New System.Windows.Forms.CheckBox()
@@ -176,6 +177,7 @@ Partial Class MainForm
         'GroupBox3
         '
         Me.GroupBox3.Controls.Add(Me.loadoutput)
+        Me.GroupBox3.Controls.Add(Me.ExcelButton)
         Me.GroupBox3.Controls.Add(Me.OutputLoc)
         Me.GroupBox3.Location = New System.Drawing.Point(8, 100)
         Me.GroupBox3.Margin = New System.Windows.Forms.Padding(4)
@@ -188,7 +190,7 @@ Partial Class MainForm
         '
         'loadoutput
         '
-        Me.loadoutput.Location = New System.Drawing.Point(500, 17)
+        Me.loadoutput.Location = New System.Drawing.Point(420, 17)
         Me.loadoutput.Margin = New System.Windows.Forms.Padding(4)
         Me.loadoutput.Name = "loadoutput"
         Me.loadoutput.Size = New System.Drawing.Size(77, 27)
@@ -196,12 +198,22 @@ Partial Class MainForm
         Me.loadoutput.Text = "Create"
         Me.loadoutput.UseVisualStyleBackColor = True
         '
+        'ExcelButton
+        '
+        Me.ExcelButton.Location = New System.Drawing.Point(505, 17)
+        Me.ExcelButton.Margin = New System.Windows.Forms.Padding(4)
+        Me.ExcelButton.Name = "ExcelButton"
+        Me.ExcelButton.Size = New System.Drawing.Size(77, 27)
+        Me.ExcelButton.TabIndex = 2
+        Me.ExcelButton.Text = "Excel"
+        Me.ExcelButton.UseVisualStyleBackColor = True
+        '
         'OutputLoc
         '
         Me.OutputLoc.Location = New System.Drawing.Point(9, 20)
         Me.OutputLoc.Margin = New System.Windows.Forms.Padding(4)
         Me.OutputLoc.Name = "OutputLoc"
-        Me.OutputLoc.Size = New System.Drawing.Size(465, 22)
+        Me.OutputLoc.Size = New System.Drawing.Size(400, 22)
         Me.OutputLoc.TabIndex = 0
         '
         'GroupBox6
@@ -1320,6 +1332,7 @@ Partial Class MainForm
     Friend WithEvents ModelFileBox As TextBox
     Friend WithEvents GroupBox3 As GroupBox
     Friend WithEvents loadoutput As Button
+    Friend WithEvents ExcelButton As Button
     Friend WithEvents OutputLoc As TextBox
     Friend WithEvents GroupBox6 As GroupBox
     Friend WithEvents BackUp As CheckBox

@@ -125,6 +125,7 @@ Public Class MainForm
         End If
         StopRequested = False
         CloseAfterRun = False
+        RunFailed = False
         ETABSModel = Nothing
         ETABS_Class.MessageHandler = Sub(Text As String, Style As MsgBoxStyle) UI(Sub() MsgBox(Text, Style))
         ETABS_Class.StatusHandler = AddressOf SetPhase
@@ -164,7 +165,7 @@ Public Class MainForm
         UiTimer.Stop()
         SetInputsEnabled(True)
         start.Text = If(StartText, "Start")
-        PhaseText = If(StopRequested, "Stopped", "Finished") & " " & Date.Now.ToString("HH:mm:ss")
+        PhaseText = If(RunFailed, "Failed (see ErrorLog.txt)", If(StopRequested, "Stopped", "Finished")) & " " & Date.Now.ToString("HH:mm:ss")
         PhaseClock = Nothing
         ShowStatus()
         If CloseAfterRun Then Close()
@@ -248,7 +249,9 @@ Public Class MainForm
             UI(Sub() MsgBox(msg))
         End If
     End Sub
+    Private RunFailed As Boolean
     Private Sub CloseETABS(ByVal ret As Integer)
+        If ret <> 0 Then RunFailed = True
         If ETABSModel IsNot Nothing Then ETABSModel.Close(ret)
     End Sub
 
@@ -267,6 +270,40 @@ Public Class MainForm
         }
             If saveFileDialog1.ShowDialog() = DialogResult.OK Then OutputLoc.Text = saveFileDialog1.FileName
         End Using
+    End Sub
+
+    'Excel workbook of an existing output file (result of an optimization or of Check Structure)
+    Private Sub ExcelButton_Click(sender As Object, e As EventArgs) Handles ExcelButton.Click
+        Dim F As String = OutputLoc.Text
+        If String.IsNullOrWhiteSpace(F) OrElse Not File.Exists(F) Then : MsgBox("Select an existing output file (*.xml)") : Return : End If
+        Try
+            Dim Written As String
+            Dim Check As String = Path.ChangeExtension(F, ".check.xml")
+            Dim R As ClassFinal
+            Using reader As New StreamReader(F)
+                R = CType(New XmlSerializer(GetType(ClassFinal)).Deserialize(reader), ClassFinal)
+            End Using
+            'settings of the run (output files of older versions have none: model and composite option only)
+            Dim FI As MiscellaneousStructures.FormInfo_ = R.FormInfo
+            If String.IsNullOrEmpty(FI.FileList.ETABSFile) Then
+                FI.FileList.ETABSFile = ModelFileBox.Text
+                FI.CompositeColumns = R.GlobalBestPrint IsNot Nothing AndAlso R.GlobalBestPrint.Any(Function(l) l.Contains("[EC "))
+            End If
+            FI.FileList.OutputFile = F
+            Written = ExcelExport.WriteResult(Path.ChangeExtension(F, ".xlsx"), R, FI)
+            Dim Msg As String = "Workbook written: " & Written
+            If R.CostBreakdown Is Nothing Then Msg &= Environment.NewLine & "The output file has no cost breakdown (written by an older version): the Cost sheet is empty."
+            If File.Exists(Check) Then
+                Dim P As ETABS_Print
+                Using reader As New StreamReader(Check)
+                    P = CType(New XmlSerializer(GetType(ETABS_Print)).Deserialize(reader), ETABS_Print)
+                End Using
+                Msg &= Environment.NewLine & "Check Structure workbook: " & ExcelExport.WriteCheck(Path.ChangeExtension(F, ".check.xlsx"), P, FI)
+            End If
+            MsgBox(Msg)
+        Catch ex As Exception
+            MsgBox("The output file could not be exported: " & ex.Message)
+        End Try
     End Sub
 
     'Form numbers with "." or "," as decimal separator, independent of the Windows culture
@@ -448,10 +485,50 @@ Public Class MainForm
         HMCR_val.Text = Num(FormInfo.OptInfo.HarmonySearch.HMCR)
         Mutation_Rate.Text = Num(FormInfo.OptInfo.BioGeography.MutationRate)
     End Sub
-    'Backup of the run whose output file is given on the form (<output>.backup.xml)
+    'Backup of the run whose output file is given on the form (<output>.backup.xml). Before the run continues the
+    'user sees what is restored and is warned if the backup belongs to another model or the model was changed.
+    Private RestoredModel As ModelIdentity_
     Private Function Backup_Read(ByRef Message As String) As Boolean
         Dim Results As Class_Backup = OptimizationClass.Backup_Read(OutputLoc.Text, Message)
         If Results Is Nothing Then Return False
+        Dim FormModel As String = ModelFileBox.Text
+        Dim BackupModel As String = If(Results.Model IsNot Nothing, Results.Model.ModelFile, Results.FormInfo.FileList.ETABSFile)
+        If Not File.Exists(BackupModel) Then
+            Message = "The model of the backup does not exist: " & BackupModel
+            Return False
+        End If
+        If Not String.IsNullOrWhiteSpace(FormModel) AndAlso Not PathsEqual(FormModel, BackupModel) Then
+            If MsgBox("The backup belongs to another model:" & Environment.NewLine & "  backup: " & BackupModel & Environment.NewLine & "  form:   " & FormModel &
+                      Environment.NewLine & Environment.NewLine & "Continue the run of the backup with its model?", MsgBoxStyle.YesNo Or MsgBoxStyle.Exclamation) <> MsgBoxResult.Yes Then
+                Message = "Load BackUp cancelled (other model)" : Return False
+            End If
+        End If
+        If Results.Model IsNot Nothing AndAlso Results.Model.ModelHash IsNot Nothing Then
+            Cursor = Cursors.WaitCursor
+            Dim Hash As String = ETABS_Class.FileHash(BackupModel)
+            Cursor = Cursors.Default
+            If Hash <> Results.Model.ModelHash Then
+                If MsgBox("The model was changed after the backup was written:" & Environment.NewLine & "  " & BackupModel & Environment.NewLine &
+                          "  at the backup: " & Results.Model.ModelWriteTime.ToString("yyyy-MM-dd HH:mm") & ", " & Results.Model.ModelSize & " bytes" & Environment.NewLine &
+                          "  now:           " & File.GetLastWriteTime(BackupModel).ToString("yyyy-MM-dd HH:mm") & ", " & New FileInfo(BackupModel).Length & " bytes" & Environment.NewLine & Environment.NewLine &
+                          "The stored designs and results may not be valid for the changed model. Continue anyway?", MsgBoxStyle.YesNo Or MsgBoxStyle.Exclamation) <> MsgBoxResult.Yes Then
+                    Message = "Load BackUp cancelled (model changed)" : Return False
+                End If
+            End If
+        End If
+        Dim Best As String = If(Double.IsInfinity(Results.GlobalBest.PenalizedCost) OrElse Results.GlobalBest.DesignVariables Is Nothing, "no feasible design yet", Results.GlobalBest.CostValue.ToString("F2"))
+        If MsgBox("Continue this run?" & Environment.NewLine & Environment.NewLine &
+                  "  model:     " & BackupModel & Environment.NewLine &
+                  "  saved:     " & If(Results.SavedAt = Date.MinValue, "(old backup)", Results.SavedAt.ToString("yyyy-MM-dd HH:mm:ss")) & Environment.NewLine &
+                  "  method:    " & Results.FormInfo.OptInfo.OptimizationMethod.ToString() & ", seed " & Results.FormInfo.Seed & ", memory " & Results.Memory.Count & Environment.NewLine &
+                  "  analyses:  " & Results.iter & " / " & Results.FormInfo.OptInfo.MaxFuncEvaluation & ", loop " & Results.ILoop & Environment.NewLine &
+                  "  best cost: " & Best & If(Results.Model Is Nothing, Environment.NewLine & Environment.NewLine & "Old backup without model data: the model is checked after ETABS is opened.", ""),
+                  MsgBoxStyle.YesNo Or MsgBoxStyle.Question) <> MsgBoxResult.Yes Then
+            Message = "Load BackUp cancelled" : Return False
+        End If
+        Results.FormInfo.FileList.ETABSFile = BackupModel
+        Results.FormInfo.FileList.OutputFile = OutputLoc.Text      'the selected output (the files may have been moved)
+        RestoredModel = Results.Model
         OptClass.Memory = Results.Memory
         FormInfo = Results.FormInfo
         OptClass.GlobalBest = Results.GlobalBest
@@ -466,6 +543,34 @@ Public Class MainForm
 
     Private FromBackUp As Boolean
     Private BackupMessage As String
+
+    Private Shared Function PathsEqual(ByVal a As String, ByVal b As String) As Boolean
+        Try
+            Return String.Equals(Path.GetFullPath(a).TrimEnd("\"c), Path.GetFullPath(b).TrimEnd("\"c), StringComparison.OrdinalIgnoreCase)
+        Catch
+            Return String.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+        End Try
+    End Function
+
+    'Restored run, after ETABS has read the model: the design variables of the backup must belong to its groups and
+    'section library, otherwise the run cannot continue
+    Private Function CheckRestoredModel() As String
+        Dim Now_ As ModelIdentity_ = ETABSModel.Identity()
+        If RestoredModel IsNot Nothing AndAlso RestoredModel.GroupNames IsNot Nothing Then
+            If Not RestoredModel.GroupNames.SequenceEqual(Now_.GroupNames) Then
+                Return "the design groups of the model (" & String.Join(", ", Now_.GroupNames) & ") differ from those of the backup (" & String.Join(", ", RestoredModel.GroupNames) & ")"
+            End If
+            If RestoredModel.SectionCount <> Now_.SectionCount Then Return "the section library has " & Now_.SectionCount & " W sections, the backup " & RestoredModel.SectionCount
+        End If
+        For Each M In OptClass.Memory
+            If M.DesignVariables.Length <> Now_.GroupNames.Count Then Return "the backup has " & M.DesignVariables.Length & " design variables, the model " & Now_.GroupNames.Count & " design groups"
+            If M.DesignVariables.Any(Function(x) x < 0 OrElse x >= Now_.SectionCount) Then Return "a design of the backup uses a section index outside the section library"
+        Next
+        'the model data of an old backup is completed for the next backups
+        OptClass.Model = If(RestoredModel, Now_)
+        If OptClass.Model.GroupNames Is Nothing Then OptClass.Model = Now_
+        Return Nothing
+    End Function
 
     'form thread: input check, backup, form values -> FormInfo
     Private Sub PrepareRun(ByRef ret As Integer)
@@ -499,6 +604,17 @@ Public Class MainForm
             OptClass.Ub = ETABSModel.Ub
             OptClass.Lb = ETABSModel.Lb
             If BackupMessage IsNot Nothing Then ETABSModel.Errorlogprint(BackupMessage)
+            If FromBackUp Then
+                Dim Problem As String = CheckRestoredModel()
+                If Problem IsNot Nothing Then
+                    LogError("The backup does not belong to this model: " & Problem)
+                    ETABS_Class.ShowMessage("The run cannot be continued: " & Problem & ".", MsgBoxStyle.Critical)
+                    ret = -1
+                    Exit Sub
+                End If
+            Else
+                OptClass.Model = ETABSModel.Identity()
+            End If
             'result cache on disk: kept by a restarted run, cleared by a new one
             ETABSModel.AttachCacheFile(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".cache.txt"), FromBackUp)
             UI(Sub()
@@ -635,11 +751,17 @@ Public Class MainForm
         ETABSModel.ETABS_print.Penalty = Penalty
         ETABSModel.ETABS_print.Cost = ETABSModel.CostStProfile(Sect_ID)
         ETABSModel.ETABS_print.AnalysisFailed = ETABSModel.AnalysisFailed
+        ETABSModel.ETABS_print.CostBreakdown = ETABSModel.CostBreakdown(Sect_ID)
         ETABSModel.Errorlogprint("Info: checked design: cost " & Num(ETABSModel.ETABS_print.Cost) & ", penalty " & Num(Penalty) & If(ETABSModel.AnalysisFailed, " (analysis not finished)", ""))
         Dim serializer As New XmlSerializer(GetType(ETABS_Print))
         Using writer As New StreamWriter(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".check.xml"))
             serializer.Serialize(writer, ETABSModel.ETABS_print)
         End Using
+        Try
+            ETABSModel.Errorlogprint("Info: check workbook " & ExcelExport.WriteCheck(Path.ChangeExtension(FormInfo.FileList.OutputFile, ".check.xlsx"), ETABSModel.ETABS_print, FormInfo))
+        Catch ex As Exception
+            ETABSModel.Errorlogprint("Warning: Excel workbook not written: " & ex.Message)
+        End Try
         Dim ETABSMax As Double = If(ETABSModel.ETABSRatioByVar.Count > 0, ETABSModel.ETABSRatioByVar.Values.Max(), 0)
         Dim Fails As Boolean = Penalty > 0 OrElse ETABSMax > 1 OrElse ETABSModel.AnalysisFailed
         ETABSModel.Close(ret, If(Fails, "The checked design does not satisfy all checks (penalty " & Num(Penalty) & ", ETABS composite ratio max " & Num(ETABSMax) &

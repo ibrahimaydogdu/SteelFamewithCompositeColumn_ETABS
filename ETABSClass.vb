@@ -2065,6 +2065,68 @@ Public Class ETABS_Class
                CompositeSettings.ConcreteUnitCost * ConcreteVolume + CompositeSettings.FormworkUnitCost * FormworkArea
     End Function
 
+    'Cost of each design group (same quantities and unit costs as CostStProfile) and a total row
+    Public Function CostBreakdown(ByVal Sect_Ind() As Integer) As List(Of CostItem_)
+        Dim L As New List(Of CostItem_)
+        Dim Composite As Boolean = FormInfo.CompositeColumns AndAlso CompositeSettings IsNot Nothing
+        Dim uS As Double = If(Composite, CompositeSettings.SteelUnitCost, 1)
+        Dim uR As Double = If(Composite, CompositeSettings.RebarUnitCost, 0)
+        Dim uC As Double = If(Composite, CompositeSettings.ConcreteUnitCost, 0)
+        Dim uF As Double = If(Composite, CompositeSettings.FormworkUnitCost, 0)
+        For i = 0 To SteelFrameDesignGroupIDs.Count - 1
+            Dim G = Groups(SteelFrameDesignGroupIDs(i))
+            Dim x As New CostItem_ With {.Group = G.GroupName, .Section = DescribeVariable(i, Sect_Ind(i)), .Length_m = G.GroupLength / 1000.0,
+                                         .Members = If(G.GroupObjectNames Is Nothing, 0, G.GroupObjectNames.Length)}
+            If FormInfo.CompositeColumns AndAlso G.IsComposite Then
+                Dim S As EncasedIShape = Encased(Sect_Ind(i))
+                x.Kind = "Composite"
+                x.SteelWeight_kN = G.GroupLength * S.SteelArea * A992Fy50Weight
+                x.RebarWeight_kN = G.GroupLength * S.RebarArea * CompositeMat.RebarWeight
+                x.Concrete_m3 = G.GroupLength * S.ConcreteArea * 0.000000001
+                x.Formwork_m2 = G.GroupLength * 2 * (S.H + S.B) * 0.000001
+            Else
+                x.Kind = "Steel"
+                x.SteelWeight_kN = G.GroupLength * WSections(Sect_Ind(i)).Area * A992Fy50Weight
+            End If
+            x.SteelCost = uS * x.SteelWeight_kN : x.RebarCost = uR * x.RebarWeight_kN
+            x.ConcreteCost = uC * x.Concrete_m3 : x.FormworkCost = uF * x.Formwork_m2
+            x.TotalCost = x.SteelCost + x.RebarCost + x.ConcreteCost + x.FormworkCost
+            L.Add(x)
+        Next
+        Dim T As New CostItem_ With {.Group = "Total", .Kind = "Total", .Section = "",
+            .Members = L.Sum(Function(c) c.Members), .Length_m = L.Sum(Function(c) c.Length_m),
+            .SteelWeight_kN = L.Sum(Function(c) c.SteelWeight_kN), .RebarWeight_kN = L.Sum(Function(c) c.RebarWeight_kN),
+            .Concrete_m3 = L.Sum(Function(c) c.Concrete_m3), .Formwork_m2 = L.Sum(Function(c) c.Formwork_m2),
+            .SteelCost = L.Sum(Function(c) c.SteelCost), .RebarCost = L.Sum(Function(c) c.RebarCost),
+            .ConcreteCost = L.Sum(Function(c) c.ConcreteCost), .FormworkCost = L.Sum(Function(c) c.FormworkCost)}
+        T.TotalCost = T.SteelCost + T.RebarCost + T.ConcreteCost + T.FormworkCost
+        For Each x In L
+            x.Share = If(T.TotalCost > 0, 100 * x.TotalCost / T.TotalCost, 0)
+        Next
+        T.Share = 100
+        L.Add(T)
+        Return L
+    End Function
+
+    'Model of the run for the backup (original model file, design variable groups, section library)
+    Public Function Identity() As ModelIdentity_
+        Dim F As New FileInfo(FormInfo.FileList.ETABSFile)
+        Return New ModelIdentity_ With {.ModelFile = F.FullName, .ModelSize = F.Length, .ModelWriteTime = F.LastWriteTime,
+            .ModelHash = FileHash(F.FullName),
+            .GroupNames = SteelFrameDesignGroupIDs.Select(Function(id) Groups(id).GroupName).ToList(),
+            .SectionCount = WSections.Count}
+    End Function
+
+    Public Shared Function FileHash(ByVal FileName As String) As String
+        Try
+            Using Sha As Security.Cryptography.SHA256 = Security.Cryptography.SHA256.Create(), St As FileStream = File.OpenRead(FileName)
+                Return BitConverter.ToString(Sha.ComputeHash(St)).Replace("-", "")
+            End Using
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
     'Printable design variable: "W360X110" or "W360X110 [EC 500x450 8D20]"
     Public Function DescribeVariable(ByVal v As Integer, ByVal SecID As Integer) As String
         Dim txt As String = WSections(SecID).SectionName
@@ -2450,4 +2512,5 @@ Public Class ETABS_Print
     'ETABS composite column design of the final / checked design (ETABS 20+): max(PMM, shear) per composite group
     Public ETABSCompositeRatios As New List(Of Double)
     Public ETABSCompositeCheck As New List(Of String)
+    Public CostBreakdown As List(Of CostItem_)                  'Check Structure: cost per group
 End Class

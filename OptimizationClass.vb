@@ -19,6 +19,11 @@ Public Class OptimizationClass
     Public FinalCheck As OptimizationStructure_.Member_    'final analysis of the best design (all cases, no repair)
     Public FinalConstraints As List(Of String)             'governing constraint values of that analysis
     Private LastUpdatedID As Integer = -1                  'memory position replaced by the last Eval (-1: none)
+    Public Model As ModelIdentity_                         'model of the run (backup check)
+    Public CostBreakdown As List(Of CostItem_)             'final design
+    Public FinalDesignPrint As List(Of String)             'final design (after the ETABS guard): "group: section"
+    Public FinalFails As Boolean                           'final analysis or ETABS composite check not satisfied
+    Public ExcelFile As String                             'workbook written by Yazdir_Final
     Private Const PITCH_BANDWIDTH As Double = 0.01         'HS pitch adjustment: up to 1 % of the variable range (at least 1 section)
 
     Public Sub Init_HarmonySearch()
@@ -404,7 +409,7 @@ Public Class OptimizationClass
 
     Public Sub Opt_Finalize()
         Dim ret As Integer = 0
-        Dim FinalFails As Boolean = False     'final analysis or ETABS composite check not satisfied
+        FinalFails = False
         If GlobalBest.PenalizedCost = Double.PositiveInfinity Then
             LogError("Warning: no feasible design found")
             If ETABSModel Is Nothing OrElse Not ETABSModel.Quiet Then ETABS_Class.ShowMessage("No feasible design was found.")
@@ -454,6 +459,10 @@ Public Class OptimizationClass
                     LogError("Warning: final design still fails the ETABS composite design, see the composite check")
                 End If
                 ETABSCompositeCheck = ETABSModel.ETABS_print.ETABSCompositeCheck
+                'cost breakdown and sections of the final design (= the best design unless the ETABS guard changed it)
+                CostBreakdown = ETABSModel.CostBreakdown(Final.DesignVariables)
+                FinalDesignPrint = Enumerable.Range(0, Final.DesignVariables.Length).Select(Function(v) ETABSModel.Groups(ETABSModel.SteelFrameDesignGroupIDs(v)).GroupName & ": " &
+                                                                                            ETABSModel.DescribeVariable(v, Final.DesignVariables(v))).ToList()
                 Dim f As String = FormInfo.FileList.ETABSFile
                 Dim SaveRet As Integer = ETABSModel.SapModel.File.Save(Path.Combine(Path.GetDirectoryName(f), Path.GetFileNameWithoutExtension(f) & "_best.EDB"))
                 If SaveRet <> 0 Then LogError("Problem occurred in :File.Save (_best.EDB)")
@@ -485,7 +494,8 @@ Public Class OptimizationClass
             .Histories = Histories,
             .iter = iter,
             .ILoop = If(midLoop, Math.Max(ILoop - 1, 0), ILoop),
-            .SavedAt = Date.Now
+            .SavedAt = Date.Now,
+            .Model = Model
         }
         Dim Target As String = BackupPath(FileList.OutputFile)
         Dim Tmp As String = Target & ".tmp"
@@ -511,24 +521,50 @@ Public Class OptimizationClass
     Public Shared Function Backup_Read(ByVal OutputFile As String, ByRef Message As String) As Class_Backup
         Dim Target As String = BackupPath(OutputFile)
         Dim serializer As New XmlSerializer(GetType(Class_Backup))
+        Dim Problems As New List(Of String)
         For Each f In {Target, Target & ".bak"}
             If Not File.Exists(f) Then Continue For
             Try
                 Using reader As New StreamReader(f)
                     Dim Results = CType(serializer.Deserialize(reader), Class_Backup)
-                    If Results.Memory Is Nothing OrElse Results.Memory.Count = 0 Then Throw New InvalidDataException("empty memory")
+                    Dim Problem As String = CheckContent(Results)
+                    If Problem IsNot Nothing Then Throw New InvalidDataException(Problem)
                     Message = "Info: run restarted from " & f & " (saved " & Results.SavedAt.ToString("yyyy-MM-dd HH:mm:ss") & ", " & Results.iter & " analyses, loop " & Results.ILoop & ")"
+                    If Problems.Count > 0 Then Message = "Warning: " & Problems(0) & "; " & Message.Substring("Info: ".Length)
                     Return Results
                 End Using
             Catch ex As Exception
-                Message = "Warning: backup " & f & " not readable: " & ex.Message
+                Problems.Add(f & ": " & If(TypeOf ex Is InvalidDataException, ex.Message, ex.Message & If(ex.InnerException IsNot Nothing, " " & ex.InnerException.Message, "")))
             End Try
         Next
-        If Message Is Nothing Then Message = "No backup of the output file found: " & Target
+        Message = If(Problems.Count > 0, "The backup cannot be used:" & Environment.NewLine & String.Join(Environment.NewLine, Problems),
+                     "No backup of the output file found: " & Target)
+        Return Nothing
+    End Function
+
+    'Consistency of a backup read from the file (Nothing: valid)
+    Public Shared Function CheckContent(ByVal B As Class_Backup) As String
+        If B.FormInfo.OptInfo.MemorySize < 2 Then Return "no optimization settings"
+        If B.Memory Is Nothing OrElse B.Memory.Count = 0 Then Return "empty memory"
+        Dim N As Integer = If(B.Model IsNot Nothing AndAlso B.Model.GroupNames IsNot Nothing, B.Model.GroupNames.Count, -1)
+        If N < 0 AndAlso B.Memory(0).DesignVariables IsNot Nothing Then N = B.Memory(0).DesignVariables.Length
+        For k = 0 To B.Memory.Count - 1
+            Dim dv() As Integer = B.Memory(k).DesignVariables
+            If dv Is Nothing OrElse dv.Length = 0 Then Return "memory member " & (k + 1) & " has no design variables"
+            If dv.Length <> N Then Return "memory member " & (k + 1) & " has " & dv.Length & " design variables instead of " & N
+            If dv.Any(Function(x) x < 0) Then Return "memory member " & (k + 1) & " has a negative section index"
+            If B.Model IsNot Nothing AndAlso B.Model.SectionCount > 0 AndAlso dv.Any(Function(x) x >= B.Model.SectionCount) Then Return "memory member " & (k + 1) & " has a section index outside the library"
+        Next
+        If B.iter < 0 OrElse B.ILoop < 0 Then Return "negative analysis / loop count"
         Return Nothing
     End Function
     Private Sub Yazdir_Final()
         Dim OptResults = New ClassFinal() With {
+            .Analyses = iter,
+            .FinalFails = FinalFails,
+            .FormInfo = FormInfo,
+            .CostBreakdown = CostBreakdown,
+            .FinalDesignPrint = FinalDesignPrint,
             .GlobalBest = GlobalBest,
             .Histories = Histories,
             .BestValue = BestValue,
@@ -542,6 +578,13 @@ Public Class OptimizationClass
         Using writer As New StreamWriter(FileList.OutputFile)
             serializer.Serialize(writer, OptResults)
         End Using
+        'the same result as an Excel workbook (<output>.xlsx)
+        Try
+            ExcelFile = ExcelExport.WriteResult(Path.ChangeExtension(FileList.OutputFile, ".xlsx"), OptResults, FormInfo)
+            LogError("Info: result workbook " & ExcelFile)
+        Catch ex As Exception
+            LogError("Warning: Excel workbook not written: " & ex.Message)
+        End Try
     End Sub
 End Class
 Public Class ClassFinal
@@ -556,6 +599,12 @@ Public Class ClassFinal
     Public FinalCheck As OptimizationStructure_.Member_
     'governing constraints of the final analysis: "<constraint>: <value / limit>"
     Public FinalConstraints As List(Of String)
+    Public Analyses As Integer
+    Public FinalFails As Boolean
+    'cost per group of the final design (+ total row) and its sections ("group: section")
+    Public CostBreakdown As List(Of CostItem_)
+    Public FinalDesignPrint As List(Of String)
+    Public FormInfo As MiscellaneousStructures.FormInfo_      'settings of the run (Excel export of the file)
 End Class
 Public Class Class_Backup
     Public Memory As List(Of OptimizationStructure_.Member_)
@@ -567,6 +616,7 @@ Public Class Class_Backup
     Public ILoop As Integer
     Public GlobalBestPrint As List(Of String)
     Public SavedAt As Date
+    Public Model As ModelIdentity_          'model of the run (old backups: Nothing)
 End Class
 
 

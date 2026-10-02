@@ -53,6 +53,14 @@ Program seçilen modeli **değiştirmez**:
   - Yedek her çevrim sonunda ve çevrim içinde 10 dakikada bir yazılır. Kesintide en çok son 10 dakikanın işi kaybolur; yarıda kalan çevrim baştan yapılır.
   - Yedek önce geçici dosyaya yazılır, sonra eskisinin yerine geçer. Önceki yedek `.backup.xml.bak` olarak saklanır. Son yedek okunamazsa `.bak` kullanılır.
   - Rastgele sayı üretecinin durumu kaydedilemez: devam eden koşu, kesintisiz koşuyla birebir aynı sonucu vermez (tohum + çevrim numarasıyla sürer).
+  - **Yedek denetimleri:**
+    - Yedek okunamazsa veya içeriği tutarsızsa (bellek boş, değişken sayısı farklı, kesit numarası kütüphane dışında) `.bak` denenir. İkisi de kullanılamazsa nedeni yazan bir mesaj çıkar ve koşu başlamaz.
+    - Yedek, modelin yolunu, boyutunu, tarihini ve SHA-256 özetini, tasarım gruplarını ve kesit kütüphanesinin boyutunu saklar.
+    - Formda başka bir model seçiliyse, yedeğin ait olduğu model gösterilir ve o modelle devam edilip edilmeyeceği sorulur.
+    - Model yedekten sonra değiştirildiyse (özet farklı) uyarı çıkar: yedekteki tasarımlar değişen modele uymayabilir; devam etmek kullanıcıya bırakılır.
+    - Devam etmeden önce bir özet gösterilir ve onay istenir: model, kayıt zamanı, yöntem, tohum, analiz sayısı ve en iyi maliyet. Yanlış dosya seçildiyse burada görülür.
+    - ETABS modeli okuduktan sonra tasarım grupları ve kesit kütüphanesi yedektekiyle karşılaştırılır. Farklıysa koşu açık bir mesajla durur. Eski yedeklerde bu bilgiler yoktur; değişken sayısı ve kesit numaraları yine denetlenir.
+    - Yeni (yedeksiz) bir koşu, aynı çıktı dosyasına ait eski yedeği siler.
 - *Check Structure Only*: çıktı XML'indeki en iyi kesitleri düzeltme yapmadan kontrol eder. Sonuç `<çıktı>.check.xml` dosyasına yazılır.
 - Koşu sırasında gösterilenler:
   - *Analyses*: yapılan / en fazla analiz sayısı.
@@ -77,6 +85,9 @@ Program seçilen modeli **değiştirmez**:
   - Atanan kod `ErrorLog.txt` dosyasına `Info: steel design code …` satırıyla yazılır.
 - **Analysis / Composite Options** grubu:
   - *Encased composite columns*: kolon gruplarını gömülü kompozit kolon olarak tasarlar.
+    - İşaretliyken **yalnızca kolonlar** kompozit olur: tüm üyeleri düşey olan çelik gruplar gömülü kompozit kolon, kirişler ve diğer gruplar çelik olarak tasarlanır.
+    - İşaretli değilse tüm gruplar çeliktir ve maliyet çelik ağırlığıdır (kN).
+    - Koşunun kompozit çalıştığı günlükteki `Info: composite columns (…) in groups [...]` satırından ve sonuç dosyasında `[EC …]` ile yazılan kesitlerden görülür.
   - *Composite code*: kompozit kolon kontrolünün yönetmelik sürümü, `AISC 360-16` veya `AISC 360-22` (varsayılan). Çelik tasarım kodundan bağımsızdır.
     - Gömülü kolonlarda iki sürümün formülleri aynıdır; sonuç değişmez.
     - Farklar dolgulu kutu/boru kesitlerdedir (beton kesme katkısı, narin kesit etkileşimi, burulma). Bu kesitler henüz optimizasyona bağlı değildir.
@@ -183,7 +194,9 @@ Arama sırasında ETABS'te kesitler `EC_<W adı>` adında *General* kesit olarak
 ## 5. Çıktılar
 | Dosya | İçerik |
 |---|---|
-| Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. `FinalCheck`: en iyi tasarımın düzeltmesiz ve tüm durumlarla final analizi (maliyet, ceza). `FinalConstraints`: belirleyici kısıtlar (oran / sınır). `ETABSCompositeCheck`: ETABS kompozit kolon kontrolü. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
+| `<çıktı>.xlsx` | Sonucun Excel kitabı (Excel kurulu olmasa da yazılır). Sayfalar: *Summary* (ayarlar, maliyet, ceza, kontrollerin durumu), *Cost* (grup başına kesit, üye sayısı, uzunluk, çelik / donatı ağırlığı, beton hacmi, kalıp alanı, kalem maliyetleri, toplam ve pay; son satır toplam), *Design* (final ve arama sonucu kesitleri), *Constraints*, *ETABS composite*, *History*. Dosya Excel'de açıksa `<çıktı>_<tarih>.xlsx` adıyla yazılır. Formdaki **Excel** düğmesi seçili çıktı dosyasından (ve varsa `.check.xml` dosyasından) kitabı yeniden oluşturur; eski sürümlerin çıktılarında maliyet sayfası boştur. |
+| `<çıktı>.check.xlsx` | Check Structure kitabı: özet, maliyet, grup oranları, ötelemeler, ETABS kompozit kontrolü |
+| Çıktı XML | En iyi çözüm, maliyet, geçmiş, tohum. `CostBreakdown`: final tasarımın grup başına maliyet dökümü (son satır toplam). `FinalDesignPrint`: final tasarımın kesitleri (ETABS koruması kesit değiştirdiyse aramanın en iyisinden farklıdır). `FinalCheck`: en iyi tasarımın düzeltmesiz ve tüm durumlarla final analizi (maliyet, ceza). `FinalConstraints`: belirleyici kısıtlar (oran / sınır). `ETABSCompositeCheck`: ETABS kompozit kolon kontrolü. Kompozit gruplar `W360X110 [EC 550x450 8D20]` biçiminde yazılır. |
 | `<model>_best.EDB` | En iyi tasarımın ETABS modeli (orijinal modelin klasöründe) |
 | Çalışma klasörü (`%TEMP%\SteelFrameOpt\…`) | Koşu süresince analiz dosyaları; koşu sonunda silinir. Kesilen koşuların klasörleri 2 gün sonra bir sonraki koşuda silinir. |
 | `ErrorLog.txt` (model klasörü) | Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Bilgi satırları (kullanılan kombinasyonlar, oluşturulan listeler, kompozit gruplar, malzemeler, çözülmeyen yük durumları), uyarılar (tamamlanamayan analizler vb.) ve hatalar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabet sayısı yer alır. |

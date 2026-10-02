@@ -160,6 +160,9 @@ Kurallar:
 - Çıktılar:
   - `ErrorLog.txt` (model klasöründe). `Errorlogprint` mesajı `Info:` veya `Warning:` ile başlamıyorsa başına `Error:` ekler. Bilgi ve uyarı mesajları bu öneklerle yazılmalıdır.
   - Yedek `<çıktı>.backup.xml` (`OptimizationClass.BackupPath`): geçici dosyaya yazılır, eskisi `.bak` olur (`Backup_Write`); okuma `.bak`'a düşer (`Backup_Read`). Çevrim içindeki zaman tabanlı yedek (`midLoop`) `ILoop - 1` yazar, devamda çevrim tekrarlanır.
+  - Yedekte `Model` (`ModelIdentity_`: model yolu, boyut, tarih, SHA-256, grup adları, kesit sayısı) bulunur. `CheckContent` içerik denetimi yapar, uymazsa `.bak` kullanılır. Form `Backup_Read` içinde model farkını ve özeti sorar; `CheckRestoredModel` ETABS'ten sonra grupları ve kütüphaneyi karşılaştırır.
+  - `CostBreakdown`, `CostStProfile` ile aynı miktarları ve birim maliyetleri kullanmalıdır (toplam satırı = değerlendirme maliyeti). Birinde değişiklik yapılırsa diğeri de güncellenmelidir.
+  - Excel kitapları `ExcelExport.vb` (OpenXml SDK) ile yazılır: `<çıktı>.xlsx` (`Yazdir_Final`), `<çıktı>.check.xlsx` (Check Structure).
   - Sonuç önbelleği `<çıktı>.cache.txt` (`AttachCacheFile`, `AddToCache`): satır başına bir kayıt, yalnızca ekleme; okunamayan satırlar atlanır.
   - sonuç XML'i
   - `<model>_best.EDB` (girdi modelinin klasöründe)

@@ -5,6 +5,43 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-02 — Aşama 14: Yedek denetimleri, maliyet dökümü, Excel çıktısı
+
+### Yedek denetimleri (bozuk ya da yanlış dosya)
+- **Model kimliği:** yedek artık modelin kimliğini saklıyor (`Class_Backup.Model`, `ModelIdentity_`): model yolu, boyutu, tarihi, SHA-256 özeti, tasarım grubu adları ve kesit kütüphanesinin boyutu.
+- **İçerik denetimi** (`CheckContent`): bellek boş olamaz; değişken sayısı ve kesit numaraları denetleniyor. Tutarsız yedekte `.bak` deneniyor. İkisi de kullanılamazsa mesaj iki dosyanın hatasını birlikte gösteriyor. `.bak` kullanılırsa ana yedeğin hatası günlüğe uyarı olarak yazılıyor.
+- **Form denetimleri** (ETABS açılmadan önce):
+  - Formdaki model yedeğin modelinden farklıysa hangi modelle devam edileceği soruluyor.
+  - Model yedekten sonra değiştiyse (özet farklı) uyarı veriliyor; devam kullanıcıya bırakılıyor.
+  - Her devamdan önce bir özet gösterilip onay isteniyor: model, kayıt zamanı, yöntem, tohum, analiz sayısı, en iyi maliyet.
+- **ETABS sonrası kesin kontrol** (`CheckRestoredModel`): tasarım grupları ya da kesit kütüphanesi yedektekinden farklıysa koşu açık bir mesajla duruyor.
+- Eski yedeklerde kimlik bilgisi yok; bu yedeklerde değişken sayısı ve kesit numarası denetimleri yine yapılıyor.
+- Koşu hatayla biterse durum satırı "Failed (see ErrorLog.txt)" gösteriyor.
+
+### Maliyet dökümü
+- Final tasarım için grup başına döküm üretiliyor (`ETABS_Class.CostBreakdown`, `CostItem_`): kesit, tür (çelik / kompozit), üye sayısı, uzunluk, çelik ve donatı ağırlığı, beton hacmi, kalıp alanı, kalem maliyetleri, toplam ve toplam içindeki pay. Son satır toplam.
+- Döküm `CostStProfile` ile aynı miktarları kullanıyor: toplam satırı değerlendirme maliyetine eşit.
+- Sonuç XML'ine `CostBreakdown`, `FinalDesignPrint`, `FinalFails`, `Analyses` ve `FormInfo` eklendi. Check Structure çıktısına (`.check.xml`) da `CostBreakdown` eklendi.
+
+### Excel çıktısı
+- Yeni `ExcelExport.vb` modülü, projede zaten bulunan OpenXml SDK ile doğrudan `.xlsx` yazıyor; Excel kurulu olması gerekmiyor.
+- **Sonuç kitabı** `<çıktı>.xlsx`: *Summary*, *Cost*, *Design*, *Constraints*, *ETABS composite* ve *History* sayfaları.
+- **Check Structure kitabı** `<çıktı>.check.xlsx`: *Summary*, *Cost*, *Design ratios*, *Drifts* ve *ETABS composite* sayfaları.
+- Dosya Excel'de açıksa `<ad>_<tarih>.xlsx` adıyla yazılıyor.
+- Formda yeni **Excel** düğmesi: seçili çıktı dosyasından (ve varsa `.check.xml` dosyasından) kitapları yeniden oluşturuyor.
+
+### Testler (525M kopyası, formdan)
+- Stop ile kesilen koşunun yedeği beş senaryoda denendi:
+  - Model özeti değiştirildi: uyarı çıktı, Hayır yanıtıyla iptal edildi.
+  - Grup adı değiştirildi: ETABS açıldıktan sonra açık bir hata mesajıyla durdu.
+  - Ana yedek bozuldu ve formda başka model seçildi: "başka model" sorusu ve özet onayı çıktı. `.bak`'tan devam edildi; final ve Excel ile "completed successfully" bitti.
+  - Ana yedek ve `.bak` bozuldu: iki hatayı gösteren mesaj çıktı.
+- *Cost* sayfasının toplamı (7945,4876310322088) final maliyetiyle birebir aynı.
+- `res.xlsx` (6 sayfa) ve `res.check.xlsx` (5 sayfa) OpenXml doğrulamasından hatasız geçti. Excel düğmesi de çalıştı.
+- Test22 tüm testleri geçti; MSBuild uyarısız.
+
+---
+
 ## 2026-10-02 — Aşama 13: Form koşu sırasında güncelleniyor (arka plan iş parçacığı)
 
 **Sorun (kullanıcı bildirimi):** koşu sırasında formda değişiklik görünmüyordu.

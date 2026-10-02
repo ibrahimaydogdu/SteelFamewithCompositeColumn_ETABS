@@ -286,3 +286,32 @@ Public Class OptimizationStructure_
         Public Penalty As Double
     End Structure
 End Class
+
+'One row of the cost breakdown of a design (output XML, Excel); Kind "Total" is the sum row
+Public Class CostItem_
+    Public Group As String
+    Public Section As String
+    Public Kind As String                   'Steel / Composite / Total
+    Public Members As Integer
+    Public Length_m As Double
+    Public SteelWeight_kN As Double
+    Public RebarWeight_kN As Double
+    Public Concrete_m3 As Double
+    Public Formwork_m2 As Double
+    Public SteelCost As Double
+    Public RebarCost As Double
+    Public ConcreteCost As Double
+    Public FormworkCost As Double
+    Public TotalCost As Double
+    Public Share As Double                  'percent of the total cost
+End Class
+
+'Model of a run, saved in the backup: a restarted run checks that it continues the same model
+Public Class ModelIdentity_
+    Public ModelFile As String
+    Public ModelSize As Long
+    Public ModelWriteTime As Date
+    Public ModelHash As String              'SHA-256 of the model file
+    Public GroupNames As List(Of String)    'design variable groups, in variable order
+    Public SectionCount As Integer          'W sections of the library (variable values 0 .. SectionCount - 1)
+End Class
