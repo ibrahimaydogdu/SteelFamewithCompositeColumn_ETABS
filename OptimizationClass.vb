@@ -424,6 +424,9 @@ Partial Public Class OptimizationClass
     Public Sub Opt_Finalize()
         Dim ret As Integer = 0
         FinalFails = False
+        If FormInfo.OptInfo.OptimizationMethod = OptimizationStructure_.OptMethod_.ArtificialBeeColony Then
+            LogError("Info: ABC scout bees (abandoned food sources): " & ScoutBees & ", " & If(FormInfo.OptInfo.LevyFlight, "Levy step around the best design", "random sources"))
+        End If
         If GlobalBest.PenalizedCost = Double.PositiveInfinity Then
             LogError("Warning: no feasible design found")
             If ETABSModel Is Nothing OrElse Not ETABSModel.Quiet Then ETABS_Class.ShowMessage("No feasible design was found.")

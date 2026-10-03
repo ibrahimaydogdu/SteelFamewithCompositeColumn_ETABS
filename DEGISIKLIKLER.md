@@ -5,6 +5,49 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## 2026-10-03 — Aşama 17: Başka kullanıcılar için hazırlık, küçük iyileştirmeler
+
+### Kullanıcının 300 analizlik ABC testinin incelemesi (525M, çelik modu)
+- Koşu sorunsuz tamamlandı: 307 analiz, 2 saat 38 dakika.
+- Üç ETABS yeniden başlatması oldu; bellek yaklaşık 1000 MB'tan 700 MB'a indi.
+- Final tasarım tüm kontrolleri sağlıyor. Aramanın en iyisi, final analizi ve Excel'deki maliyet toplamı aynı: 6378,45 kN.
+- Maliyet 8590 kN'den 6378 kN'ye düştü. Son iyileşme 256. analizde olduğu için arama henüz yakınsamamıştı.
+- Gözlemler (hata değil):
+  - İlk sınır tasarımı 8 dakika sürdü.
+  - `ErrorLog.txt` bütün koşuları aynı dosyada biriktiriyor.
+
+### İyileştirmeler
+- **Koşu ayracı:** `ErrorLog.txt` dosyasında her koşu `Info: ======== new run <tarih>, program <sürüm>, model …, output … ========` satırıyla başlıyor.
+- **Program sürümü** 2026.10.3.0 (`AssemblyInfo.vb`). Sürüm, exe özelliklerinde ve koşu ayracında görünüyor.
+- **ABC:** koşu sonunda kâşif arı (terk edilen kaynak) sayısı günlüğe yazılıyor.
+- **Ayar dosyası yoksa:** ayar dosyası ya da `SectionPropertyDataPath` yoksa, bulunan ETABS'in `Property Libraries` klasöründeki AISC16M (veya AISC14M) kullanılıyor. Önceden program "Section property file not found" diyerek duruyordu.
+- **`EncasedSections.xml` exe'nin yanında yoksa:** günlüğe uyarı yazılıyor. Önceden ayarlar sessizce varsayılana dönüyordu.
+- **Mesajlar:** günlük mesajları ayar dosyasını kullanıcının göreceği adla (`FrameSap2000.exe.config`) anıyor.
+
+### Kullanım kılavuzu (başka kullanıcılar için)
+- **Kurulum bölümü** yeniden yazıldı:
+  - gereksinimler;
+  - birlikte taşınması gereken dosyalar ve her dosya eksik olursa ne olacağı;
+  - kurulum adımları: kısa klasör yolu, zip için *Engellemeyi kaldır*, SmartScreen uyarısı, kısayol;
+  - ayar dosyasının düzenlenmesi ve örneği;
+  - ETABS lisansı ve uzun koşularda uyku modu ile Windows Update.
+- Terimler tablosu eklendi; `EncasedSections.xml` dosyasının nasıl düzenleneceği anlatıldı.
+- ABC terk sınırı için kısa koşu önerisi eklendi.
+- İlk sınır tasarımı süresi "2–10 dakika" olarak düzeltildi.
+- Sorun tablosuna kurulum hataları eklendi: SmartScreen, eksik DLL, ETABS açılamıyor, eksik `EncasedSections.xml`.
+- Derleme ve dağıtım paketi hazırlama, geliştiriciler için **Ek A**'ya taşındı.
+
+### Testler
+- **Dağıtım paketi:** *Release* derlemesindeki altı dosya ayrı bir klasöre kopyalandı.
+  - Program bu klasörden açıldı; sürüm 2026.10.3.0 göründü.
+  - `ETABSv1.dll` olmadan da form açılıyor; ETABS'e yalnızca Start'ta ihtiyaç var.
+- **Eksik dosyalar:** ayar dosyası ve `EncasedSections.xml` olmadan formdan kompozit ABC koşusu yapıldı.
+  - ETABS ve kütüphane kendiliğinden bulundu; eksik XML uyarısı ve koşu ayracı yazıldı.
+  - Koşu ETABS doğrulaması ve Excel çıktısıyla tamamlandı.
+- Test22 tüm testleri geçti; matematik testinde 15 yöntem hatasız çalıştı; MSBuild uyarısız.
+
+---
+
 ## 2026-10-02 — Aşama 16: Paylaşıma hazırlık
 
 - **README.md** (İngilizce; GitHub açılış sayfası) eklendi: özellikler, gereksinimler, derleme ve çalıştırma, belgeler, atıf ricası.

@@ -131,6 +131,8 @@ End Module
 'to the section bounds; the acceptance rule is the one of the method (greedy unless noted).
 Partial Public Class OptimizationClass
 
+    Public ScoutBees As Integer         'ABC: abandoned food sources (this program session; reported at the end)
+
     Private Function Par(ByVal Key As String) As Double
         Return MethodCatalog.GetParam(FormInfo.OptInfo, FormInfo.OptInfo.OptimizationMethod, Key)
     End Function
@@ -302,6 +304,7 @@ Partial Public Class OptimizationClass
         If ret <> 0 Then Return
         'scout bee
         If Trials(Imem) > Limit Then
+            ScoutBees += 1
             Cand = If(FormInfo.OptInfo.LevyFlight, LevyAroundBest(Memory(Imem)), RandomMember())
             EvalAt(Cand, Imem, False, ret)
             Trials(Imem) = 0

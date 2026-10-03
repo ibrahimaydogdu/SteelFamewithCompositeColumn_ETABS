@@ -2,9 +2,11 @@
 
 Kompozit kolonlu uzay çelik çerçevelerin metasezgisel yöntemlerle optimum tasarımı (ETABS 22; ETABS 19 ile de çalışır).
 
+Program sürümü: 2026.10.3 (exe dosyasında sağ tık > *Özellikler > Ayrıntılar* ve `ErrorLog.txt` dosyasındaki `======== new run` satırı).
+
 ## İçindekiler
 1. [Programın yaptığı iş](#1-programın-yaptığı-iş)
-2. [Gereksinimler, derleme ve kurulum](#2-gereksinimler-derleme-ve-kurulum)
+2. [Kurulum](#2-kurulum)
 3. [Hızlı başlangıç: ilk koşu](#3-hızlı-başlangıç-ilk-koşu)
 4. [ETABS modelinin hazırlanması](#4-etabs-modelinin-hazırlanması)
 5. [Form](#5-form)
@@ -14,6 +16,7 @@ Kompozit kolonlu uzay çelik çerçevelerin metasezgisel yöntemlerle optimum ta
 9. [Çıktılar ve sonuçların yorumlanması](#9-çıktılar-ve-sonuçların-yorumlanması)
 10. [Check Structure: bir tasarımı kontrol etme](#10-check-structure-bir-tasarımı-kontrol-etme)
 11. [Sık karşılaşılan durumlar](#11-sık-karşılaşılan-durumlar)
+- [Ek A. Geliştiriciler için: derleme ve dağıtım paketi](#ek-a-geliştiriciler-için-derleme-ve-dağıtım-paketi)
 
 ---
 
@@ -44,33 +47,62 @@ Bir koşunun akışı:
 - Kısıt ihlali cezası: `cezalı maliyet = maliyet · (1 + ceza)³`.
 - Yalnızca cezası 0 olan (tüm kısıtları sağlayan) tasarımlar "en iyi tasarım" olabilir.
 
+**Terimler**
+| Terim | Anlamı |
+|---|---|
+| Tasarım grubu / değişken | ETABS'te aynı kesiti alan çubuklar. Her grup için bir kesit seçilir. |
+| Kesit numarası | Gruba atanan kesitin, alana göre sıralı W kesit listesindeki sırası. |
+| Analiz | Bir aday tasarımın ETABS'te analizi ve tasarımı. *Max. analyses* bu sayıyı sınırlar. |
+| Bellek (popülasyon) | Yöntemin üzerinde çalıştığı tasarımlar kümesi |
+| Döngü (loop) | Bellekteki her üye için yeni tasarım üretilen bir tur |
+| Ceza | Kısıt aşım miktarı. 0 ise tasarım tüm kısıtları sağlar (uygun tasarım). |
+| Final tasarım | Koşu sonunda tüm durumlarla yeniden analiz edilen ve ETABS ile doğrulanan en iyi tasarım |
+
 ---
 
-## 2. Gereksinimler, derleme ve kurulum
+## 2. Kurulum
+Bu bölüm, programı derlenmiş hâliyle (klasör ya da zip olarak) alan kullanıcı içindir. Programı kaynak koddan derlemek için [Ek A](#ek-a-geliştiriciler-için-derleme-ve-dağıtım-paketi)'ya bakın.
 
 ### 2.1 Gereksinimler
 | Gereksinim | Not |
 |---|---|
 | Windows 10/11 veya Windows Server, 64 bit | |
-| ETABS 22 (veya ETABS 19), lisanslı | ETABS 22.6 ile test edildi. Kompozit kolonların ETABS ile doğrulanması ETABS 20 ve sonrasını gerektirir. |
-| .NET Framework 4.7.2 veya sonrası | Windows 10/11 ile birlikte gelir. |
-| Visual Studio (2022 veya sonrası) | Yalnızca derlemek için. Visual Studio 18 ile denendi. |
-| Bellek | ETABS 1 GB civarında kullanır; programla birlikte en az 8 GB RAM önerilir. |
+| **ETABS 22, kurulu ve lisanslı** | Program ETABS'i kendisi açar ve kullanır; ETABS olmadan çalışmaz. ETABS 22.6 ile test edildi. Program paketi ETABS 22 için hazırlanır; başka bir ETABS sürümü kullanılacaksa programın o sürümle derlenmesi önerilir (Ek A). |
+| .NET Framework 4.7.2 veya sonrası | Windows 10/11'de hazır bulunur. |
+| Bellek ve disk | En az 8 GB RAM (ETABS yaklaşık 1 GB kullanır). Geçici klasörde birkaç yüz MB boş alan. |
 
-### 2.2 Derleme
-1. `SteelFrameWithCompositeColumnsETABS.sln` dosyasını Visual Studio'da açın.
-2. NuGet paketi (`DocumentFormat.OpenXml` 2.18, Excel çıktısı için) ilk derlemede otomatik indirilir. İnmezse: *Tools > NuGet Package Manager > Restore*.
-3. *Build > Build Solution* ile derleyin. Program `bin\Debug\FrameSap2000.exe` olarak oluşur.
-4. Çıktı klasöründe şunlar bulunmalıdır:
-   - `FrameSap2000.exe` ve `FrameSap2000.exe.config` (derlenmiş `App.config`);
-   - `EncasedSections.xml` (kompozit ayarları, otomatik kopyalanır);
-   - `ETABSv1.dll` ve `DocumentFormat.OpenXml.dll`.
+### 2.2 Program paketi: birlikte taşınması gereken dosyalar
+Program tek bir exe dosyası değildir. Aşağıdaki dosyalar **aynı klasörde** durmalıdır. Exe dosyasını tek başına başka bir yere (ör. masaüstüne) kopyalamayın; kısayol oluşturun (2.3).
 
-ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETABS 22 varsa onun, yoksa ETABS 19'unki. Program derlendiği sürümün ETABS'ine bağlanır. ETABS 22'de kaydedilen bir model ETABS 19'da açılmaz; ETABS 19 modelleri ETABS 22'de açılınca otomatik dönüştürülür.
+| Dosya | Gerekli mi? | Eksikse ne olur |
+|---|---|---|
+| `FrameSap2000.exe` | Evet | Programın kendisi |
+| `ETABSv1.dll` | Evet | Form açılır, ama **Start**'a basınca *Could not load file or assembly 'ETABSv1'* hatası verir. |
+| `Microsoft.Win32.Registry.dll` | Evet | `ETABSv1.dll` bu dosyaya ihtiyaç duyar; ETABS bağlantısı kurulamaz. |
+| `DocumentFormat.OpenXml.dll` | Evet (Excel çıktısı) | Koşu tamamlanır ve sonuç XML'i yazılır, ancak Excel kitabı yazılamaz (`Warning: Excel workbook not written`). |
+| `EncasedSections.xml` | Evet (kompozit kolonlar) | Kompozit ayarları ve birim maliyetler varsayılan değerlere döner. Günlükte uyarı yazılır. |
+| `FrameSap2000.exe.config` | Önerilir | ETABS yolu ve diğer ayarlar (2.4). Dosya yoksa kurulu en yeni ETABS ve onun AISC16M kütüphanesi kullanılır, diğer ayarlar varsayılan alınır. |
+| `*.pdb`, `*.xml` (OpenXml) | Hayır | Yalnızca hata ayıklama ve belge dosyaları |
 
-> **Klasör yolu:** programı ve modelleri kısa bir klasör yolunda tutun (ör. `D:\Opt\`). Windows'un 260 karakterlik yol sınırı aşılırsa ayar dosyası veya Excel kütüphanesi yüklenemeyebilir.
+### 2.3 Kurulum adımları
+1. Kısa yollu bir klasör oluşturun, ör. `C:\SteelOpt`.
+   - Windows'un 260 karakterlik yol sınırı aşılırsa ayar dosyası veya Excel kütüphanesi yüklenemeyebilir. Çok uzun klasör adlarından ve derin klasörlerden kaçının.
+   - `C:\Program Files` altına koymayın; ayar dosyasını düzenlemek yönetici izni ister.
+2. Program paketi zip olarak e-posta veya internetten geldiyse:
+   - **önce zip dosyasına sağ tıklayın > *Özellikler* > en alttaki *Engellemeyi kaldır* (Unblock) kutusunu işaretleyin > Tamam**;
+   - sonra zip'i klasöre çıkarın.
 
-### 2.3 Ayarlar (`FrameSap2000.exe.config`, kaynakta `App.config`)
+   Aksi hâlde Windows, DLL dosyalarının yüklenmesini engelleyebilir. Programı zip'in içinden çalıştırmayın.
+3. `FrameSap2000.exe` dosyasını çift tıklayarak açın.
+   - İlk açılışta *"Windows bilgisayarınızı korudu"* (SmartScreen) uyarısı çıkabilir: program imzalı değildir. *Ek bilgi > Yine de çalıştır* ile açın.
+   - Antivirüs programı engellerse klasörü güvenilir listeye ekleyin.
+4. ETABS standart yerine kurulu değilse (`C:\Program Files\Computers and Structures\ETABS 22\`) ayar dosyasındaki yolu düzeltin (2.4). Standart yerdeyse bir şey yapmanız gerekmez.
+5. İsterseniz masaüstüne kısayol oluşturun: `FrameSap2000.exe` üzerinde sağ tık > *Gönder > Masaüstü (kısayol oluştur)*.
+6. Kurulumu sınamak için kısa bir deneme koşusu yapın (bölüm 3).
+
+### 2.4 Ayarlar (`FrameSap2000.exe.config`)
+Ayar dosyası Not Defteri ile açılıp düzenlenebilir. Yalnızca `value="…"` kısımlarını değiştirin, dosyanın XML yapısını bozmayın. Ondalık ayırıcı nokta olmalıdır (`0.7`). Değişiklik, programı yeniden açınca geçerli olur.
+
 | Anahtar | Varsayılan | Açıklama |
 |---|---|---|
 | `ETABSProgramPath` | `C:\Program Files\Computers and Structures\ETABS 22\ETABS.exe` | `ETABS.exe` yolu. Bulunamazsa kurulu en yeni ETABS kullanılır ve uyarı yazılır. |
@@ -80,6 +112,23 @@ ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETAB
 | `ServiceLateralFactor` | 1,0 | Programın oluşturduğu `SRV_<desen>` servis durumlarının yük katsayısı. Örneğin ASCE 7 servis rüzgârı için 0,6–0,7. |
 | `SeismicDriftAmplification` | 1,0 | Servis öteleme modunda deprem durumlarının yerdeğiştirme büyütmesi. ASCE 7: Cd/Ie, TBDY 2018: R/I. |
 | `CompositeStrengthFactor` | 1,0 | İç kompozit dayanım oranlarının çarpanı. Final ETABS kontrolünün önerdiği değer girilebilir (bkz. 7.4). |
+
+Örnek: ETABS `D:\CSI\ETABS 22` klasörüne kurulduysa:
+```xml
+<add key="ETABSProgramPath" value="D:\CSI\ETABS 22\ETABS.exe" />
+<add key="SectionPropertyDataPath" value="D:\CSI\ETABS 22\Property Libraries\AISC16M.xml" />
+```
+
+### 2.5 ETABS lisansı ve uzun koşular
+- Program kendi ETABS örneğini açar (*Hide ETABS* seçiliyse görünmez) ve koşu sonunda kapatır. Açık olan kendi ETABS pencerelerinize dokunmaz.
+- ETABS lisansınız aynı anda tek oturuma izin veriyorsa, koşu sırasında ETABS'i ayrıca açmayın. Lisans sorunu varsa önce ETABS'i elle açıp lisansın çalıştığını kontrol edin.
+- Koşu sırasında Görev Yöneticisi'nde görünen ETABS süreci programındır; kapatmayın. Programın kendisi ETABS'i 100 analizde bir yeniden başlatır.
+- **Uzun koşulardan önce:**
+  - bilgisayarın uyku moduna geçmesini kapatın (*Ayarlar > Sistem > Güç > Uyku: Hiçbir zaman*);
+  - mümkünse Windows Update yeniden başlatmalarını erteleyin.
+
+  Kesinti olursa koşu yedekten devam eder (bölüm 8.3).
+- Model OneDrive gibi senkronize bir klasörde olabilir. Analiz dosyaları geçici klasöre yazılır, senkronize klasör dolmaz.
 
 ---
 
@@ -98,7 +147,7 @@ ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETAB
    - *Memory / population size* ve *Max. analyses* değerlerini girin. Deneme için 10 ve 100; gerçek koşu için bkz. bölüm 6.
 5. **Start**'a basın.
    - Durum satırı o anki aşamayı gösterir.
-   - İlk sınır tasarımı birkaç dakika sürebilir.
+   - İlk sınır tasarımı birkaç dakika sürebilir (525M modelinde 2–10 dakika).
    - Arama başlayınca analiz sayısı, en iyi maliyet ve kalan süre güncellenir.
 6. Koşu bitince bir mesaj kutusu çıkar:
    - "API script completed successfully.": final tasarım tüm kontrolleri sağlıyor.
@@ -137,7 +186,7 @@ Program seçilen modeli **değiştirmez**:
 
 ### 4.4 Otomatik kesit listeleri (ilk sınır tasarımı)
 - Başlangıç sınırları için bütün değişken kirişlere `BeamSectionList`, kolonlara `ColumnSectionList` atanır ve ETABS tasarımı yapılır.
-- Listeler modelde yoksa kütüphanedeki **tüm W kesitleriyle** (AISC16M: 289 kesit) otomatik oluşturulur. İlk tasarım bu durumda birkaç dakika sürer.
+- Listeler modelde yoksa kütüphanedeki **tüm W kesitleriyle** (AISC16M: 289 kesit) otomatik oluşturulur. İlk tasarım bu durumda uzun sürer: 525M modelinde (14 grup) 8 dakika ölçüldü.
 - Daha kısa bir liste için listeyi ETABS'te kendiniz tanımlayın (*Define > Section Properties > Frame Sections > Auto Select List*) ve adını `App.config` dosyasına yazın. Örneğin 525M modelinde hazır `A-LatBm` / `A-LatCol` listeleri vardır.
 - Grubun arama aralığı, bu tasarımda bulunan kesit ve tasarım oranına göre belirlenir. Kompozit gruplarda alt sınır en küçük kesittir: beton katkısıyla daha küçük profiller de yeterli olabilir.
 
@@ -289,6 +338,7 @@ Açıklamalar:
   - *Arşivin en kötüsüyle*: ACO'da yeni tasarım, bellekteki en kötü tasarımla karşılaştırılır.
 - **Zamana bağlı katsayılar** (GWO `a`, GOA `c`, HBA yoğunluğu, BSO adımı, AO evreleri, Firefly α), yapılan analizin *Max. analyses* değerine oranıyla ilerler. *Max. analyses* değerini gerçekçi seçin: çok büyük bir değer, aramanın keşif aşamasında kalmasına yol açar.
 - **Yöntem durumu** (ABC deneme sayaçları, ACO feromonu, GWO liderleri) yedeğe yazılır; *Load BackUp* ile kaldığı yerden devam edilir.
+- **ABC terk sınırı:** varsayılan 0, "koloni × değişken" demektir (ör. 10 × 14 = 140 deneme). Kısa koşularda (birkaç yüz analiz) hiçbir kaynak bu sayıya ulaşmaz ve kâşif arı aşaması çalışmaz. Kısa koşularda 10–20 girin.
 - Bütün yöntemler aynı değerlendirme altyapısını kullanır: geometri düzeltmesi, kısıt onarımı, önbellek, yedek ve ETABS yeniden başlatma.
 
 ### 6.2 Hangi yöntem?
@@ -302,7 +352,7 @@ Açıklamalar:
 - **Analiz süresi:** 525M modelinde (525 eleman, 14 grup) bir değerlendirme ortalama 13–25 s sürüyor. Bu süreye onarım, önbellek ve yeniden başlatmalar dahildir.
   - 1000 analiz: yaklaşık 4–7 saat.
   - 5000 analiz: 1–1,5 gün.
-- **Süreye eklenen sabit aşamalar:** ilk sınır tasarımı (2–5 dakika), başlangıç belleği (*Memory size* × analiz süresi) ve final doğrulaması (3–5 dakika).
+- **Süreye eklenen sabit aşamalar:** ilk sınır tasarımı (2–10 dakika; tüm gruplar 289 kesitlik listeyle tasarlandığında uzar, bkz. 4.4), başlangıç belleği (*Memory size* × analiz süresi) ve final doğrulaması (3–5 dakika).
 - **Önerilen ayarlar:**
 
   | Koşu | Memory size | Max. analyses |
@@ -319,6 +369,8 @@ Açıklamalar:
 ## 7. Kompozit kolonlar
 
 ### 7.1 Gömülü kesitin oluşturulması (`EncasedSections.xml`)
+Ayarlar exe'nin yanındaki `EncasedSections.xml` dosyasındadır. Dosya Not Defteri ile düzenlenebilir: yalnızca etiketler arasındaki değerleri değiştirin (ör. `<ConcreteCover>50</ConcreteCover>`), uzunluklar mm'dir, ondalık ayırıcı noktadır. Değişiklik bir sonraki koşuda geçerli olur. Dosyanın bir kopyasını saklamanız önerilir.
+
 Her W kesiti için bir gömülü kesit üretilir:
 - **Boyutlar:** H = d + 2·`ConcreteCover`, B = bf + 2·`ConcreteCover`. Sonuç `DimensionRounding` değerine yukarı yuvarlanır ve en az `MinDimension` olur.
 - **Donatı:** çevreye dizilir. Yüz başına çubuk sayısı `MinBarsPerFace` değerinden başlar ve ρsr ≥ %0,4 olana kadar (en fazla `MaxBarsPerFace`) artırılır. Çap `RebarDiameter`, pas payı (çubuk merkezine) `RebarCover`.
@@ -430,7 +482,7 @@ Yedek denetimleri:
 | `<çıktı>.check.xlsx` | Check Structure kitabı: özet, maliyet, grup oranları, ötelemeler, ETABS kompozit kontrolü |
 | `<çıktı>.xml` | Sonuç (makine okunur). Kitaptaki tüm bilgiler ve `Seed`, `GlobalBest`, `FinalCheck`, `FinalConstraints`, `CostBreakdown`, `FinalDesignPrint`, `ETABSCompositeCheck`, `FormInfo` (koşu ayarları). |
 | `<model>_best.EDB` | En iyi (final) tasarımın ETABS modeli, orijinal modelin klasöründe |
-| `ErrorLog.txt` | Model klasöründe. Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Koşu sonunda `Info: timing …` satırında analiz, tasarım ve kesit atama süreleri ile önbellek isabetleri yazar. |
+| `ErrorLog.txt` | Model klasöründe; o klasördeki bütün koşular aynı dosyaya eklenir. Her koşu `Info: ======== new run <tarih>, program <sürüm>, model …, output … ========` satırıyla başlar. Satırlar `Info:`, `Warning:` veya `Error:` ile başlar. Koşu sonunda `Info: timing …` satırında süreler ve önbellek isabetleri, ABC'de kâşif arı sayısı yazar. Sorun bildirirken bu dosyayı ekleyin. |
 | `<çıktı>.backup.xml` (+ `.bak`) | Kesilen koşuya devam için yedek |
 | `<çıktı>.cache.txt` | Sonuç önbelleği; devam eden koşu okur, yeni koşu siler |
 
@@ -475,8 +527,14 @@ Bir çıktı dosyasındaki tasarımı, aynı veya değiştirilmiş bir modelde d
 ## 11. Sık karşılaşılan durumlar
 | Mesaj veya durum | Neden / çözüm |
 |---|---|
+| *"Windows bilgisayarınızı korudu"* | Program imzalı değil: *Ek bilgi > Yine de çalıştır* (2.3). |
+| Program açılmıyor veya hemen kapanıyor | .NET Framework 4.7.2 kurulu mu kontrol edin. Zip'ten çıkarmadan önce *Engellemeyi kaldır* yapıldı mı (2.3)? |
+| Mesaj: *Unhandled exception: … Could not load file or assembly 'ETABSv1'* | `ETABSv1.dll` veya `Microsoft.Win32.Registry.dll` exe'nin yanında değil (2.2). |
+| `Cannot start a new instance of the program` / `Problem occurred on :ApplicationStart` | ETABS açılamadı: ETABS'i elle açıp lisansı kontrol edin; ayardaki ETABS yolunu kontrol edin. |
+| `Warning: …EncasedSections.xml not found …` | `EncasedSections.xml` exe'nin yanında değil; kompozit ayarları varsayılan alındı (2.2). |
+| `Info: ======== new run …` | Yeni bir koşunun başı; sürüm, model ve çıktı dosyası bilgisi |
 | `Info: ETABS 22.x.x (…)` | Bağlanılan ETABS sürümü ve yolu |
-| `ETABS program not found` / `Section property file not found` | Ayar dosyasındaki yolları düzeltin (bölüm 2.3). |
+| `ETABS program not found` / `Section property file not found` | Ayar dosyasındaki yolları düzeltin (bölüm 2.4). |
 | `Warning: 'ETABSProgramPath' not found …, using …` | Ayardaki yol bulunamadı; kurulu en yeni ETABS kullanıldı. Ayarı düzeltin. |
 | `DesignSteel.SetCode, code not available` | ETABS API'sinin desteklediği bir kod seçin (ETABS 22: AISC 360-22; ETABS 19: AISC 360-10). |
 | `No strength design combination` | Kombinasyon tanımlayın veya *Create default design combos* seçeneğini açın. |
@@ -487,12 +545,39 @@ Bir çıktı dosyasındaki tasarımı, aynı veya değiştirilmiş bir modelde d
 | `Info: ETABS guard …` | Final tasarımda ETABS'te aşan kolon büyütüldü (bölüm 7.4). |
 | `Info: steel design strength combinations selected again` | ETABS yeniden açılan modelde kombinasyon seçimini silmişti; program yeniden seçti. Bilgi amaçlıdır. |
 | `Info: ETABS restart …` | Bellek için ETABS yeniden başlatıldı (bölüm 5.3). |
+| `Info: ABC scout bees …` | ABC'de terk edilip yeniden üretilen kaynak sayısı. 0 ise terk sınırı bu koşu için büyük (bkz. 6.1). |
 | `PropMaterial.GetOConcrete …` | `EncasedSections.xml` içindeki malzeme adı modelde yok. |
 | `Design section … is not a W section` | Otomatik listede kütüphane dışı kesit var; o grup için orta kesit kullanılır. |
-| `Warning: Excel workbook not written …` | Excel dosyası yazılamadı (ör. klasör yolu çok uzun, bkz. 2.2). Sonuç XML'i yazılmıştır; formdaki **Excel** düğmesiyle tekrar deneyin. |
+| `Warning: Excel workbook not written …` | Excel dosyası yazılamadı (ör. klasör yolu çok uzun veya `DocumentFormat.OpenXml.dll` eksik, bkz. 2.2). Sonuç XML'i yazılmıştır; formdaki **Excel** düğmesiyle tekrar deneyin. |
 | Mesaj: *The backup cannot be used …* | Yedek ve `.bak` bozuk; yeni bir koşu başlatın. |
 | Mesaj: *The backup belongs to another model …* | Formda başka bir model seçili. Yedeğin modeliyle devam etmek için **Yes**, vazgeçmek için **No**. |
 | Mesaj: *The model was changed after the backup was written …* | Model yedekten sonra değişmiş. Değişiklik tasarım gruplarını etkiliyorsa **No** ile yeni koşu başlatın. |
 | Mesaj: *The run cannot be continued: the design groups … differ* | Yedek bu modelin değil veya gruplar değişmiş; yeni bir koşu başlatın. |
 | Form güncellenmiyor gibi görünüyor | Durum satırına bakın: uzun bir ETABS aşamasında (ilk sınır tasarımı, final) süre ilerler, sayılar ancak aşama bitince değişir. |
 | Koşu bitti ama ETABS hâlâ açık | Normalde program kendi açtığı ETABS'i kapatır; kapanmazsa 60 s sonra sonlandırır. Sizin açtığınız ETABS'e dokunulmaz. |
+
+---
+
+## Ek A. Geliştiriciler için: derleme ve dağıtım paketi
+**Derleme**
+1. `SteelFrameWithCompositeColumnsETABS.sln` dosyasını Visual Studio'da (2022 veya sonrası; Visual Studio 18 ile denendi) açın.
+2. NuGet paketi `DocumentFormat.OpenXml` 2.18 ilk derlemede otomatik indirilir. İnmezse: *Tools > NuGet Package Manager > Restore*.
+3. ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETABS 22 varsa onun, yoksa ETABS 19'unki. Program derlendiği sürümün ETABS'ine bağlanır. ETABS 22'de kaydedilen bir model ETABS 19'da açılmaz.
+4. Dağıtım için *Release* yapılandırmasını seçip *Build > Build Solution* ile derleyin. Çıktı klasörü `bin\Release\` olur (*Debug*: `bin\Debug\`).
+
+**Dağıtım paketi**
+1. Boş bir klasör oluşturun, ör. `SteelOpt_2026.10.3`.
+2. `bin\Release\` klasöründen şu altı dosyayı bu klasöre kopyalayın:
+   - `FrameSap2000.exe`
+   - `FrameSap2000.exe.config`
+   - `EncasedSections.xml`
+   - `ETABSv1.dll`
+   - `Microsoft.Win32.Registry.dll`
+   - `DocumentFormat.OpenXml.dll`
+
+   `.pdb` ve OpenXml `.xml` dosyaları gerekmez.
+3. Kullanım kılavuzunu (`KULLANIM_KILAVUZU.md`, isterseniz PDF'e çevrilmiş hâlini) klasöre ekleyin.
+4. Klasörü zip'leyip paylaşın. Alıcı bölüm 2.3'teki adımları izler (*Engellemeyi kaldır*, kısa klasör yolu).
+5. Paylaşmadan önce paketi başka bir klasöre çıkarıp programı açarak deneyin. Mümkünse kısa bir deneme koşusu yapın.
+
+Sürüm numarası `My Project\AssemblyInfo.vb` dosyasındadır (`AssemblyVersion`); yeni bir paket hazırlarken güncelleyin.

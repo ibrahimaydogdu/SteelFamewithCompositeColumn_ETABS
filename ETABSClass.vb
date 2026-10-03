@@ -118,6 +118,10 @@ Public Class ETABS_Class
     Public Sub New(ByRef FormInfo_ As MiscellaneousStructures.FormInfo_, ByRef ret As Integer)
         ETABS_print = New ETABS_Print
         FormInfo = FormInfo_
+        'separator: ErrorLog.txt keeps the runs of all optimizations of the model folder
+        Errorlogprint("Info: ======== new run " & Date.Now.ToString("yyyy-MM-dd HH:mm") & ", program " & GetType(ETABS_Class).Assembly.GetName().Version.ToString() &
+                      ", model " & Path.GetFileName(FormInfo.FileList.ETABSFile) & ", output " & Path.GetFileName(FormInfo.FileList.OutputFile) &
+                      If(FormInfo.CheckStructure, ", Check Structure", "") & " ========")
         ret = Initialize()
     End Sub
     'Warning: shown instead of the success message (final design does not satisfy all checks)
@@ -306,18 +310,20 @@ Public Class ETABS_Class
         If String.IsNullOrWhiteSpace(ProgramPath) OrElse Not File.Exists(ProgramPath) Then
             Dim Found As String = FindInstalledETABS()
             If Found Is Nothing Then
-                Errorlogprint("ETABS program not found. Check 'ETABSProgramPath' in App.config: " & ProgramPath)
+                Errorlogprint("ETABS program not found. Check 'ETABSProgramPath' in the settings file FrameSap2000.exe.config: " & ProgramPath)
                 Return -1
             End If
             Errorlogprint("Warning: 'ETABSProgramPath' not found (" & ProgramPath & "), using " & Found)
             ProgramPath = Found
         End If
         If String.IsNullOrWhiteSpace(SectionPropertyData) OrElse Not File.Exists(SectionPropertyData) Then
-            'same library file name in the property libraries of the ETABS version in use
-            Dim Alt As String = If(String.IsNullOrWhiteSpace(SectionPropertyData), Nothing,
-                                   Path.Combine(Path.GetDirectoryName(ProgramPath), "Property Libraries", Path.GetFileName(SectionPropertyData)))
+            'same library file name in the property libraries of the ETABS version in use (no setting: AISC16M, AISC14M)
+            Dim LibDir As String = Path.Combine(Path.GetDirectoryName(ProgramPath), "Property Libraries")
+            Dim Alt As String = If(String.IsNullOrWhiteSpace(SectionPropertyData),
+                                   {"AISC16M.xml", "AISC14M.xml"}.Select(Function(n) Path.Combine(LibDir, n)).FirstOrDefault(Function(f) File.Exists(f)),
+                                   Path.Combine(LibDir, Path.GetFileName(SectionPropertyData)))
             If Alt Is Nothing OrElse Not File.Exists(Alt) Then
-                Errorlogprint("Section property file not found. Check 'SectionPropertyDataPath' in App.config: " & SectionPropertyData)
+                Errorlogprint("Section property file not found. Check 'SectionPropertyDataPath' in the settings file FrameSap2000.exe.config: " & SectionPropertyData)
                 Return -1
             End If
             Errorlogprint("Warning: 'SectionPropertyDataPath' not found (" & SectionPropertyData & "), using " & Alt)
@@ -861,7 +867,7 @@ Public Class ETABS_Class
             DriftFactor(c) = Amp
         Next
         If Amp = 1.0 Then
-            Errorlogprint("Warning: seismic drift cases [" & String.Join(", ", Seismic) & "] use elastic displacements; set SeismicDriftAmplification in App.config (ASCE 7: Cd/Ie, TBDY 2018: R/I)")
+            Errorlogprint("Warning: seismic drift cases [" & String.Join(", ", Seismic) & "] use elastic displacements; set SeismicDriftAmplification in the settings file FrameSap2000.exe.config (ASCE 7: Cd/Ie, TBDY 2018: R/I)")
         Else
             Errorlogprint("Info: seismic drift cases [" & String.Join(", ", Seismic) & "] amplified by " & Amp)
         End If
@@ -2144,6 +2150,7 @@ Public Class ETABS_Class
         Dim filePath As String = EncasedSettings_.DefaultPath()
         Try
             CompositeSettings = If(File.Exists(filePath), EncasedSettings_.Load(filePath), New EncasedSettings_())
+            If Not File.Exists(filePath) Then Errorlogprint("Warning: " & filePath & " not found (copy it next to the program); default composite column settings are used")
             'unit costs of the form (MainForm) replace those of the file; old backups have none
             If FormInfo.Costs.IsSet Then
                 CompositeSettings.SteelUnitCost = FormInfo.Costs.Steel
@@ -2460,7 +2467,7 @@ Public Class ETABS_Class
             Dim Msg As String = "ETABS / internal composite strength ratio (max) " & Calibration.ToString("F3", CultureInfo.InvariantCulture) &
                                 ", CompositeStrengthFactor " & CompositeStrengthFactor.ToString("F3", CultureInfo.InvariantCulture)
             If Calibration > CompositeStrengthFactor * (1 + CALIBRATION_TOL) Then
-                Errorlogprint("Warning: " & Msg & ": the internal check is unconservative; App.config CompositeStrengthFactor = " & Calibration.ToString("F2", CultureInfo.InvariantCulture) & " matches ETABS")
+                Errorlogprint("Warning: " & Msg & ": the internal check is unconservative; CompositeStrengthFactor = " & Calibration.ToString("F2", CultureInfo.InvariantCulture) & " (settings file FrameSap2000.exe.config) matches ETABS")
             Else
                 Errorlogprint("Info: " & Msg)
             End If
