@@ -580,7 +580,9 @@ Bir çıktı dosyasındaki tasarımı, aynı veya değiştirilmiş bir modelde d
    - `DocumentFormat.OpenXml.dll`
 
    `.pdb` ve OpenXml `.xml` dosyaları gerekmez.
-3. Kullanım kılavuzunu (`KULLANIM_KILAVUZU.md`, isterseniz PDF'e çevrilmiş hâlini) klasöre ekleyin.
+3. `LICENSE` dosyasını ve kullanım kılavuzunu klasöre ekleyin. Kılavuzun tarayıcıda açılan HTML hâli için:
+   `python tools\md2html.py KULLANIM_KILAVUZU.md KULLANIM_KILAVUZU.html "Kullanım Kılavuzu"`.
+   PDF isterseniz HTML'yi tarayıcıda açıp *Yazdır > PDF olarak kaydet* seçin.
 4. Klasörü zip'leyip paylaşın. Alıcı bölüm 2.3'teki adımları izler (*Engellemeyi kaldır*, kısa klasör yolu).
 5. Paylaşmadan önce paketi başka bir klasöre çıkarıp programı açarak deneyin. Mümkünse kısa bir deneme koşusu yapın.
 

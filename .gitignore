@@ -19,3 +19,4 @@ BackUp.xml
 # temporary clean-clone build test
 _cc/
 _pkg/
+dist/
