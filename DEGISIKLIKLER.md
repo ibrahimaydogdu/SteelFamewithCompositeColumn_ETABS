@@ -5,6 +5,31 @@ Orijinal kaynak dosyaların yedeği: `_yedek_asama1/`. Aşama 2 sonrası durum g
 
 ---
 
+## Proje durumu (2026-10-03): tamamlandı — sürüm 2026.10.3
+- Aşama 1–17 tamamlandı.
+- **Program:**
+  - 15 optimizasyon yöntemi;
+  - gömülü kompozit kolonlar (ETABS ile final doğrulaması ve koruma);
+  - P-Delta ve servis ötelemesi;
+  - yedekten devam ve ETABS yeniden başlatma;
+  - arka planda çalışan form;
+  - Excel çıktısı ve maliyet dökümü.
+- **Testler:**
+  - birim testleri ve 15 yöntemin matematik testi;
+  - 525M modeliyle formdan koşular, kesinti ve yedek senaryoları;
+  - temiz kopyadan derleme;
+  - dağıtım paketinin açılıp çalıştırılması;
+  - kullanıcının manuel testleri: Load BackUp, 300 analizlik ABC.
+- **Dağıtım:** kılavuz Ek A'ya göre `SteelOpt_<sürüm>.zip`.
+- **Olası sonraki işler:**
+  - uzun koşularla yöntem karşılaştırması;
+  - iç çözücü ile ETABS arasındaki zayıf eksen Mn farkının kökünün bulunması (şimdilik `CompositeStrengthFactor` ve koruma ile yönetiliyor);
+  - Wolf Colony'nin ayrı bir yöntem olarak eklenmesi;
+  - ETABS 19 ile test;
+  - dolgulu kutu / boru kompozit kesitlerin optimizasyona bağlanması.
+
+---
+
 ## 2026-10-03 — Aşama 17: Başka kullanıcılar için hazırlık, küçük iyileştirmeler
 
 ### Kullanıcının 300 analizlik ABC testinin incelemesi (525M, çelik modu)
