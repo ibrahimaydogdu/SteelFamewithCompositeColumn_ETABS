@@ -563,7 +563,11 @@ Bir çıktı dosyasındaki tasarımı, aynı veya değiştirilmiş bir modelde d
 1. `SteelFrameWithCompositeColumnsETABS.sln` dosyasını Visual Studio'da (2022 veya sonrası; Visual Studio 18 ile denendi) açın.
 2. NuGet paketi `DocumentFormat.OpenXml` 2.18 ilk derlemede otomatik indirilir. İnmezse: *Tools > NuGet Package Manager > Restore*.
 3. ETABS API'si (`ETABSv1.dll`) derleme sırasında kurulu ETABS'ten alınır: ETABS 22 varsa onun, yoksa ETABS 19'unki. Program derlendiği sürümün ETABS'ine bağlanır. ETABS 22'de kaydedilen bir model ETABS 19'da açılmaz.
-4. Dağıtım için *Release* yapılandırmasını seçip *Build > Build Solution* ile derleyin. Çıktı klasörü `bin\Release\` olur (*Debug*: `bin\Debug\`).
+4. Dağıtım için *Release* yapılandırmasıyla derleyin. Çıktı klasörü `bin\Release\` olur.
+   - Üst araç çubuğunda yeşil **Start** düğmesinin solundaki açılır kutuda **Release** seçin. Kutu görünmüyorsa: *Build > Configuration Manager… > Active solution configuration: Release*.
+   - Ardından *Build > Rebuild Solution*.
+   - "Rebuild" her zaman o anda seçili yapılandırmayı derler: kutuda *Debug* seçiliyken yalnızca `bin\Debug\` güncellenir, `bin\Release\` boş kalır.
+   - Debug derlemesi de çalışır. Ancak `bin\Debug\` klasöründe eski dosyalar birikmiş olabilir; paket için yalnızca aşağıdaki altı dosyayı alın.
 
 **Dağıtım paketi**
 1. Boş bir klasör oluşturun, ör. `SteelOpt_2026.10.3`.
